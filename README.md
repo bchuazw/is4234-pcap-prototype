@@ -12,7 +12,7 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 
 - **From the folder or the ZIP:** unzip, then double-click `index.html`. It opens in Edge, Chrome, Firefox or Safari. No install, no build step, no internet connection and no login.
 - **Online:** https://bchuazw.github.io/is4234-pcap-prototype/
-- Use the **Role** menu at the top to switch between Maker (Wipro ops), Checker (Wipro ops), Approver (Citi, in-house), Operational Risk (2nd line) and Head of Loan Ops (register owner).
+- On the payment desk, use **Acting as** to switch between Maker, Checker, Approver and Op Risk. On the other screens the **Acting as** menu at the top also has Head of Loan Ops (register owner). When a payment waits for another role, the desk shows a "Switch to ..." button.
 - Everything you do is kept in this browser only (localStorage). **Reset demo data** restores the starting point. If the browser blocks storage, the app still works and shows a notice that changes last until reload.
 
 ## Folder layout
@@ -35,7 +35,7 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 |---|---|---|
 | M1 Workaround and Legacy Constraint Register | Govern | Register |
 | M2 Pre-Release Consequence Engine | Prevent | Payment desk |
-| M3 Authority and Independence Gate | Prevent | Payment desk (maker pre-check and approver gate) |
+| M3 Authority and Independence Gate | Prevent | Payment desk (maker review step and approver gate) |
 | M4 Approval Behaviour Analytics | Detect | Behaviour analytics |
 | M5 Compensating Control Monitor | Detect | Control monitor |
 | M6 Obligation Map and Oversight Dashboard | Govern | Obligations and Board, Event log |
@@ -61,10 +61,10 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 The **How to demo** screen has a "Go" button for each step that switches role and opens the right screen.
 
 1. **0:00 to 0:20. Open it.** Show the page (GitHub Pages link or `index.html`). Point at the header: prototype, synthetic data. One sentence on the case: about USD 7.8M of interest was meant, about USD 894M of principal went out after six-eyes approval.
-2. **0:20 to 1:15. Maker keys the Revlon replay.** Click "Start the demo with the Revlon replay". In the Flexcube-style screen, FRONT and FUND are still "Lenders" and only PRINCIPAL is the wash account. The live pre-check is already Tier 3: "This will send USD 893,900,000 of PRINCIPAL and USD 7,820,000 of INTEREST to 315 external lenders". R-04 (FRONT and FUND not set), R-02 (no principal due) and R-01 (USD 893.9M over the schedule) fire. Submit it anyway, as happened in 2020.
-3. **1:15 to 1:35. Checker.** Continue as Checker. Type the note "Principal set to wash" and send it on. Say that the approver will not see this note until after the blind re-key.
-4. **1:35 to 2:35. Approver.** Continue as Approver. The amounts are hidden. The M3 gate is open (certified, independent, in-house). Open the agent notice, type 7,820,000 and check. It does not match, so type it again. R-07 escalates, the consequence statement appears in red with the principal amount, and the time on screen is counted for M4. Add a note and send it to Operational Risk.
-5. **2:35 to 3:05. Operational Risk.** Continue as Operational Risk. Show the hard-stop queue, who saw what, and the evidence trail. Choose "Confirmed error", write a reason and reject it. Optional if time allows: as Maker, "Edit and resubmit" with FRONT and FUND set to wash, and show it pass at Tier 2 with the principal staying inside the bank.
+2. **0:20 to 1:15. Maker keys the Revlon replay.** Click "Start the demo with the Revlon replay". The New payment form opens at step 1, Instruction. Under Settlement routing, FRONT and FUND are still "Lenders" and only PRINCIPAL is on the wash account. Click **Review payment** (step 2). The banner says "Tier 3: hard stop" and the consequence card says "This payment will send USD 901.7M to 315 lenders, including USD 893.9M of principal", with bars showing 115 times what the schedule expects. R-04 (FRONT and FUND not set), R-02 (no principal due) and R-01 (USD 893.9M over the schedule) fail. Click **Submit to checker** anyway, as happened in 2020.
+3. **1:15 to 1:35. Checker.** The stepper shows the payment at Checker review. Click **Switch to Checker**. Type the note "Principal set to wash" and click **Mark checked, send to approver**. Say that the approver will not see this note until after the blind re-key.
+4. **1:35 to 2:35. Approver.** Click **Switch to Approver**. The amounts are hidden, even in the queue. The M3 gate is open (certified, independent, in-house). Open "Your source: agent notice", type 7,820,000 and click **Check amount**. It does not match, so type it again. R-07 escalates, the consequence card appears with the principal amount, and the time on screen is counted for M4. Add a note and click **Send to Operational Risk**.
+5. **2:35 to 3:05. Operational Risk.** Click **Switch to Op Risk**. Show "Why it was held", the "Who saw it" card and the **Evidence trail** button. Write a reason and click **Reject and return to maker**. Optional if time allows: click **Switch to Maker**, then **Edit and resubmit**, set FRONT and FUND to the wash account, review and resubmit. It passes at Tier 2 with only USD 7.8M leaving and the principal staying inside the bank. Check it, re-key 7,820,000, tick the confirmation and release.
 6. **3:05 to 3:25. M1 Register.** Switch to Head of Loan Ops. WA-02's review is overdue and WA-03's dispensation expires soon. Click "Mark reviewed" on WA-02 (an owner attestation in the log).
 7. **3:25 to 3:45. M4 Behaviour analytics.** Team TPA has drifted into red on R-08: fast looks and fast approvals after Tier 2 warnings. Point at the privacy banner: team level by default, individual view only with a logged reason.
 8. **3:45 to 4:05. M5 Control monitor.** As Operational Risk, click "Run same-day reconciliation". Show the red, amber and green controls (lapsed certification, expiring dispensation) and the replay regression test.
@@ -88,7 +88,7 @@ There are 26 tests in `tests/engine.test.js` and `tests/flow.test.js`. They chec
 - the synthetic test is deterministic for a fixed seed, and across seeds every Tier 3 and gate error is stopped
 - the payment desk actions log every step with module, rule and obligation tags, a release by Operational Risk shows up as a reconciliation break, and a maker cannot run an independent reconciliation
 
-The browser screens were also checked in headless Microsoft Edge at 1400 px and 390 px width: the full demo flow ran with no JavaScript errors, no sideways scrolling on a phone, a working evidence pack download, and a working fallback when browser storage is blocked.
+The browser screens were also checked in headless Microsoft Edge at 1400, 1024 and 390 px width: the full payment desk flow ran through every role with no JavaScript errors and no sideways scrolling, every step wrote the same event log entries as before the desk redesign, and the app still works when browser storage is blocked.
 
 ## Synthetic test results
 

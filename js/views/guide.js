@@ -9,17 +9,17 @@
 
   var STEPS = [
     { n: 1, role: 'maker', route: 'desk', preset: 'revlon', title: 'Maker keys the Revlon replay',
-      text: 'Load the Revlon replay. The live pre-check already shows Tier 3: R-04 (FRONT and FUND not set), R-02 (principal not due) and R-01 (USD 893.9M over the schedule). The statement says USD 893,900,000 of PRINCIPAL goes to 315 lenders. Submit it anyway, as happened in 2020.' },
+      text: 'The New payment form opens with the Revlon replay. Under Settlement routing only PRINCIPAL is on the wash account. Click Review payment: Tier 3, and PCAP says it will send USD 901.7M to 315 lenders, including USD 893.9M of principal, 115 times what the schedule expects. R-04, R-02 and R-01 fail. Submit it anyway, as happened in 2020.' },
     { n: 2, role: 'checker', route: 'desk', title: 'Checker marks it checked',
-      text: 'The checker sees the same statement. Add a note such as "Principal set to wash" and send it on. The approver will not see this note until after the blind re-key.' },
+      text: 'Click Switch to Checker. The checker sees the same consequence card and checks. Add a note such as "Principal set to wash" and click Mark checked. The approver will not see this note until after the blind re-key.' },
     { n: 3, role: 'approver', route: 'desk', title: 'Approver re-keys blind, then reads the consequence',
-      text: 'The amounts are hidden. Open the agent notice, type 7,820,000 and check. It does not match, so type it again. R-07 escalates, the statement appears, and the payment is a Tier 3 hard stop. Send it to Operational Risk.' },
+      text: 'Click Switch to Approver. The amounts are hidden. Open your source (the agent notice), type 7,820,000 and click Check amount. It does not match, so type it again. R-07 escalates, the consequence card appears, and the payment is a Tier 3 hard stop. Send it to Operational Risk.' },
     { n: 4, role: 'oprisk', route: 'desk', title: 'Operational Risk decides, with a reason',
-      text: 'Only the second line can release a Tier 3 payment. Pick "Confirmed error", write a reason and reject it back to the maker. Every step is now in the event log.' },
+      text: 'Click Switch to Op Risk. Only the second line can release a Tier 3 payment. Write a reason and click Reject and return to maker. Every step is now in the event log.' },
     { n: 5, role: 'maker', route: 'desk', title: 'Optional: the maker fixes it',
-      text: 'Under "My instructions", choose "Edit and resubmit", set FRONT and FUND to the wash account and resubmit. Now it is Tier 2: only USD 7,820,000 of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000, confirm and release.' },
+      text: 'The returned payment waits for the maker. Click Edit and resubmit, set FRONT and FUND to the wash account, review and resubmit. Now it is Tier 2: only USD 7.8M of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000, confirm and release.' },
     { n: 6, role: 'maker', route: 'desk', preset: 'clean', title: 'Contrast: a clean payment at Tier 1',
-      text: 'Load "Clean interest", submit, check and approve. Tier 1 needs no re-key. The approver\'s real time on the consequence screen is measured for M4.' },
+      text: 'The form opens with a clean interest payment. Review, submit, check and approve. Tier 1 needs no re-key. The approver\'s real time on the consequence screen is measured for M4.' },
     { n: 7, role: 'owner', route: 'register', title: 'M1 register',
       text: 'WA-02 review is overdue and WA-03\'s dispensation is about to expire. As Head of Loan Ops, mark WA-02 reviewed or add a new workaround.' },
     { n: 8, role: 'oprisk', route: 'analytics', title: 'M4 behaviour analytics',
@@ -79,7 +79,7 @@
       '</div><p class="muted small">Any payment using a valid registered override is at least Tier 2. R-05 and R-06 failures close the M3 gate for that approver whatever the tier.</p></div>' +
 
       '<div class="card notes"><h2>Good to know</h2><ul>' +
-      '<li>No login. Use the <strong>Role</strong> menu at the top to switch between Maker, Checker, Approver, Operational Risk and Head of Loan Ops.</li>' +
+      '<li>No login. On the payment desk, use <strong>Acting as</strong> to switch between Maker, Checker, Approver and Op Risk. On other screens use the <strong>Acting as</strong> menu at the top, which also has Head of Loan Ops.</li>' +
       '<li>All data is synthetic and stays in this browser (localStorage). <strong>Reset demo data</strong> restores the starting point.</li>' +
       '<li>The prototype is not connected to any core banking system. The Flexcube-style screen is a simulation.</li>' +
       '<li>Rule logic lives in one file, <span class="mono">js/engine.js</span>, which also runs the Node unit tests.</li></ul></div>';

@@ -37,8 +37,9 @@
   function renderTabs() {
     var cur = currentRoute();
     document.getElementById('tabs').innerHTML = ROUTES.map(function (r) {
-      return '<a href="#/' + r.id + '" class="tab' + (r.id === cur ? ' active' : '') + '"' + (r.id === cur ? ' aria-current="page"' : '') + '>' +
-        '<span>' + U.esc(r.label) + '</span>' + r.mods.map(function (m) { return U.moduleChip(m); }).join('') + '</a>';
+      var mods = r.mods.length ? ' title="' + U.esc('Modules ' + r.mods.join(' and ')) + '"' : '';
+      return '<a href="#/' + r.id + '" class="tab' + (r.id === cur ? ' active' : '') + '"' + (r.id === cur ? ' aria-current="page"' : '') + mods + '>' +
+        '<span>' + U.esc(r.label) + '</span></a>';
     }).join('');
   }
 
@@ -68,6 +69,7 @@
     renderHeader();
     renderBanner();
     var id = currentRoute();
+    document.body.setAttribute('data-route', id);
     var view = PCAP.views[id];
     var main = document.getElementById('app');
     main.onclick = null; main.oninput = null; main.onchange = null; main.onsubmit = null; main.onkeydown = null;
