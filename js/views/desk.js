@@ -40,9 +40,9 @@
   };
   var ROUTE_LABEL = { LENDERS: 'Lenders', WASH: 'Wash account 9910' };
   var TIER_TEXT = {
-    1: { title: 'Tier 1: routine.', text: 'The approver reads what the payment will do, then releases it.', icon: 'check', short: 'Routine' },
-    2: { title: 'Tier 2: extra confirmation.', text: 'The approver re-keys the amount blind, then confirms what the payment will do.', icon: 'warn', short: 'Extra confirmation' },
-    3: { title: 'Tier 3: hard stop.', text: 'Only Operational Risk can release this payment.', icon: 'stop', short: 'Hard stop' }
+    1: { title: 'Tier 1: routine.', text: 'The approver reads what the payment will do, then releases it.', icon: 'check', short: 'Routine', tag: 'Routine clearance' },
+    2: { title: 'Tier 2: extra confirmation.', text: 'The approver re-keys the amount blind, then confirms what the payment will do.', icon: 'warn', short: 'Extra confirmation', tag: 'Hold for confirmation' },
+    3: { title: 'Tier 3: hard stop.', text: 'Ground stop: only Operational Risk can clear this payment for release.', icon: 'stop', short: 'Hard stop', tag: 'Ground stop' }
   };
 
   /* Icons used only on this screen. 16px, currentColor. */
@@ -433,11 +433,12 @@
       barsHtml(m) + figuresHtml(m, opts) + '</section>';
   }
 
-  function decisionBanner(m) {
+  function decisionBanner(m, p) {
     var t = TIER_TEXT[m.tier] || TIER_TEXT[1];
+    var tag = p && p.status === 'RELEASED' ? 'Cleared for release' : t.tag;
     var gate = m.gate && !m.gate.open
       ? '<p class="db-gate">' + U.icon('lock') + '<span>M3 gate closed: ' + esc(name(m.approverId)) + ' cannot approve this payment, so it has to be reassigned.</span></p>' : '';
-    return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(t.icon) + '<div class="db-body"><p><strong>' + esc(t.title) + '</strong> ' + esc(t.text) + '</p>' + gate + '</div></div>';
+    return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(t.icon) + '<div class="db-body"><p><span class="db-tag">' + esc(tag) + '</span> <strong>' + esc(t.title) + '</strong> ' + esc(t.text) + '</p>' + gate + '</div></div>';
   }
 
   /* ------------------------------------------------------------ instruction and people */
@@ -530,8 +531,13 @@
   var STEP_ICON = { done: 'check', released: 'check', skipped: 'dash', returned: 'undo', 'now-ret': 'undo', stopped: 'x' };
   var STEP_SR = { done: 'Done', released: 'Done', current: 'Current step', upcoming: 'Not started', skipped: 'Skipped', returned: 'Returned', 'now-ret': 'Current step', stopped: 'Stopped' };
 
-  function stepperHtml(steps) {
-    return '<ol class="stepper" aria-label="Payment lifecycle">' + steps.map(function (s, i) {
+  /* The lifecycle drawn as a clearance track: it fills as the payment moves from maker to release. */
+  function stepperHtml(steps, p) {
+    var done = steps.filter(function (s) { return s.state === 'done' || s.state === 'released'; }).length;
+    var state = p.status === 'RELEASED' ? ['is-cleared', 'Cleared and released'] : p.status === 'HELD' ? ['is-held', 'Ground stop, held for Op Risk'] :
+      p.status === 'RETURNED' ? ['is-ret', 'Returned to the maker'] : (p.status === 'CANCELLED' || p.status === 'REJECTED') ? ['', 'Stopped'] : ['', 'Awaiting clearance'];
+    return '<div class="track-head" aria-hidden="true"><span>Clearance track</span><span class="track-state ' + state[0] + '">' + esc(state[1]) + ' · ' + done + ' of ' + steps.length + '</span></div>' +
+      '<ol class="stepper ' + state[0] + '" aria-label="Payment lifecycle">' + steps.map(function (s, i) {
       var icon = STEP_ICON[s.state] ? ico(STEP_ICON[s.state]) : '<span>' + (i + 1) + '</span>';
       var cur = s.state === 'current' || s.state === 'now-ret';
       return '<li class="stp is-' + s.state + '"' + (cur ? ' aria-current="step"' : '') + '><span class="stp-dot">' + icon + '</span>' +
@@ -567,7 +573,7 @@
     return '<section class="card d-head" aria-label="' + esc(p.id) + '">' +
       '<div class="d-title"><div class="d-title-main"><h2>' + esc(p.id) + ' ' + statusChip(p.status) + '</h2><p class="d-sub">' + sub + '</p></div>' +
       (hidden ? '' : '<button type="button" class="btn ghost small" data-open-payment="' + esc(p.id) + '">' + ico('list') + ' Evidence trail</button>') + '</div>' +
-      stepperHtml(lifecycle(p, m)) + nextBanner(p, role) + '</section>';
+      stepperHtml(lifecycle(p, m), p) + nextBanner(p, role) + '</section>';
   }
 
   /* Main column cards plus a right rail. Narrow screens stack them with the rail after the first card. */
@@ -743,7 +749,7 @@
       } else if (role === 'maker' && p.status === 'RETURNED') {
         body = decisionBanner(m) + grid(consequenceCard(m, rekeyFigs), makerReturnedPanel(p), [checksCard(m), instructionCard(p.instr), peopleCard(p)]);
       } else {
-        body = decisionBanner(m) + grid(consequenceCard(m, rekeyFigs), peopleCard(p), [checksCard(m), instructionCard(p.instr)]);
+        body = decisionBanner(m, p) + grid(consequenceCard(m, rekeyFigs), peopleCard(p), [checksCard(m), instructionCard(p.instr)]);
       }
     }
     return detailHead(p, m, role, hidden) + body;
@@ -915,7 +921,7 @@
     var f = facts(p);
     var hidden = amountsHidden(p, role, f.tier);
     var on = p.id === selId;
-    return '<li><button type="button" class="q-row' + (on ? ' is-active' : '') + '" data-action="select" data-id="' + p.id + '"' + (on ? ' aria-current="true"' : '') + '>' +
+    return '<li><button type="button" class="q-row' + (on ? ' is-active' : '') + '" data-action="select" data-id="' + p.id + '" data-tier="' + f.tier + '"' + (on ? ' aria-current="true"' : '') + '>' +
       '<span class="q-line"><span class="q-id">' + esc(p.id) + '</span>' + (hidden ? '<span class="q-amt is-hidden">Amount hidden</span>' : '<span class="q-amt">' + esc(shortAmt(f.total)) + '</span>') + '</span>' +
       '<span class="q-line"><span class="q-sub">' + tierText(f.tier) + '<span class="q-loan">' + esc(loanOf(p.loanId).name) + '</span></span>' + statusChip(p.status, true) + '</span>' +
       '</button></li>';

@@ -9,8 +9,10 @@
   var PCAP = root.PCAP = root.PCAP || {};
   var U = PCAP.util;
 
-  var SERIES = ['#2a78d6', '#eb6834', '#1baf7a']; /* validated categorical slots 1 to 3 */
-  var STATUS = { good: '#0ca30c', warning: '#fab219', critical: '#d03b3b' };
+  /* Colours are CSS variables from css/styles.css, so charts follow the dark and light themes.
+     SVG presentation attributes cannot read variables, so colours go in style attributes. */
+  var SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
+  var STATUS = { good: 'var(--good)', warning: 'var(--warn)', critical: 'var(--crit)' };
   var reg = {};
   var uid = 0;
 
@@ -42,8 +44,8 @@
     var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + U.esc(opts.ariaLabel || 'Line chart') + '" data-chart="' + id + '">';
     (opts.bands || []).forEach(function (b) {
       var yt = y(Math.min(b.to, yMax)), yb = y(b.from);
-      s += '<rect x="' + m.l + '" y="' + yt + '" width="' + pw + '" height="' + Math.max(0, yb - yt) + '" fill="' + b.color + '" opacity="0.07"/>';
-      s += '<line x1="' + m.l + '" x2="' + (m.l + pw) + '" y1="' + yb + '" y2="' + yb + '" stroke="' + b.color + '" stroke-opacity="0.55" stroke-width="1"/>';
+      s += '<rect x="' + m.l + '" y="' + yt + '" width="' + pw + '" height="' + Math.max(0, yb - yt) + '" style="fill:' + b.color + '" opacity="0.08"/>';
+      s += '<line x1="' + m.l + '" x2="' + (m.l + pw) + '" y1="' + yb + '" y2="' + yb + '" style="stroke:' + b.color + '" stroke-opacity="0.6" stroke-width="1" stroke-dasharray="4 3"/>';
       s += '<text x="' + (m.l + 6) + '" y="' + (yb - 4) + '" class="axis-label">' + U.esc(b.label) + '</text>';
     });
     ticks.forEach(function (t) {
@@ -63,9 +65,9 @@
       var pts = [];
       ser.values.forEach(function (v, i) { if (v != null) pts.push([x(i), y(v)]); });
       if (pts.length) {
-        s += '<polyline fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '"/>';
+        s += '<polyline class="ln" pathLength="1" fill="none" style="stroke:' + color + ';--d:' + (120 + si * 140) + 'ms" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '"/>';
         var last = pts[pts.length - 1];
-        s += '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="4.5" fill="' + color + '" stroke="#fff" stroke-width="2"/>';
+        s += '<circle class="ln-end dot-ring" cx="' + last[0] + '" cy="' + last[1] + '" r="4.5" style="fill:' + color + '" stroke-width="2"/>';
         ends.push({ y: last[1], x: last[0], label: ser.name + '  ' + fmt(ser.values[ser.values.length - 1]), color: color });
       }
     });
@@ -76,9 +78,9 @@
     for (var j = 1; j < ends.length; j++) if (ends[j].ly - ends[j - 1].ly < 15) ends[j].ly = ends[j - 1].ly + 15;
     ends.forEach(function (e) {
       var lx = m.l + pw + 12;
-      if (Math.abs(e.ly - e.y) > 1) s += '<polyline points="' + (e.x + 6) + ',' + e.y + ' ' + (lx - 4) + ',' + e.ly + '" fill="none" stroke="#9aa3ae" stroke-width="1"/>';
-      s += '<line x1="' + lx + '" x2="' + (lx + 10) + '" y1="' + e.ly + '" y2="' + e.ly + '" stroke="' + e.color + '" stroke-width="2.5" stroke-linecap="round"/>';
-      s += '<text x="' + (lx + 15) + '" y="' + (e.ly + 4) + '" class="end-label">' + U.esc(e.label) + '</text>';
+      if (Math.abs(e.ly - e.y) > 1) s += '<polyline class="ln-end leader" points="' + (e.x + 6) + ',' + e.y + ' ' + (lx - 4) + ',' + e.ly + '" fill="none" stroke-width="1"/>';
+      s += '<line class="ln-end" x1="' + lx + '" x2="' + (lx + 10) + '" y1="' + e.ly + '" y2="' + e.ly + '" style="stroke:' + e.color + '" stroke-width="2.5" stroke-linecap="round"/>';
+      s += '<text x="' + (lx + 15) + '" y="' + (e.ly + 4) + '" class="end-label ln-end">' + U.esc(e.label) + '</text>';
     });
     s += '<rect class="hit" x="' + m.l + '" y="' + m.t + '" width="' + pw + '" height="' + ph + '" fill="transparent" data-line="' + id + '" tabindex="0" aria-label="' + U.esc(opts.ariaLabel || 'chart') + ': use the table below for values"/>';
     s += '</svg>';
@@ -113,7 +115,7 @@
       s += '<text x="' + (lw - 8) + '" y="' + (y0 + bar / 2 + 4) + '" text-anchor="end" class="bar-label">' + U.esc(it.label) + '</text>';
       if (w > 0) {
         var r = Math.min(4, w);
-        s += '<path d="M' + lw + ',' + y0 + ' h' + (w - r) + ' a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + ' v' + (bar - 2 * r) + ' a' + r + ',' + r + ' 0 0 1 -' + r + ',' + r + ' h-' + (w - r) + 'z" fill="' + color + '"/>';
+        s += '<path class="bar bar-x" d="M' + lw + ',' + y0 + ' h' + (w - r) + ' a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + ' v' + (bar - 2 * r) + ' a' + r + ',' + r + ' 0 0 1 -' + r + ',' + r + ' h-' + (w - r) + 'z" style="fill:' + color + ';--i:' + i + '"/>';
       }
       s += '<rect x="' + lw + '" y="' + (y0 - 6) + '" width="' + (pw + vw) + '" height="' + rowH + '" fill="transparent" class="bar-hit" tabindex="0" data-tip="' + U.esc(it.tip || (it.label + ': ' + (it.display != null ? it.display : it.value))) + '"/>';
       s += '<text x="' + (lw + w + 6) + '" y="' + (y0 + bar / 2 + 4) + '" class="bar-value">' + U.esc(it.display != null ? it.display : String(it.value)) + '</text>';
@@ -144,7 +146,7 @@
       var x0 = cx - bw / 2, y0 = m.t + ph - h;
       if (h > 0) {
         var r = Math.min(4, h, bw / 2);
-        s += '<path d="M' + x0 + ',' + (m.t + ph) + ' v-' + (h - r) + ' a' + r + ',' + r + ' 0 0 1 ' + r + ',-' + r + ' h' + (bw - 2 * r) + ' a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + ' v' + (h - r) + 'z" fill="' + (b.color || SERIES[0]) + '"/>';
+        s += '<path d="M' + x0 + ',' + (m.t + ph) + ' v-' + (h - r) + ' a' + r + ',' + r + ' 0 0 1 ' + r + ',-' + r + ' h' + (bw - 2 * r) + ' a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r + ' v' + (h - r) + 'z" class="bar bar-y" style="fill:' + (b.color || SERIES[0]) + ';--i:' + i + '"/>';
       }
       s += '<rect x="' + (m.l + slot * i) + '" y="' + m.t + '" width="' + slot + '" height="' + ph + '" fill="transparent" class="bar-hit" tabindex="0" data-tip="' + U.esc(b.tip || (b.label + ': ' + b.value)) + '"/>';
       if (i % (bins.length > 10 ? 2 : 1) === 0 || i === bins.length - 1) s += '<text x="' + cx + '" y="' + (H - 10) + '" text-anchor="middle" class="axis-label">' + U.esc(b.label) + '</text>';
@@ -152,7 +154,7 @@
     s += '<line x1="' + m.l + '" x2="' + (m.l + pw) + '" y1="' + (m.t + ph) + '" y2="' + (m.t + ph) + '" class="baseline"/>';
     if (opts.marker) {
       var mx = m.l + slot * opts.marker.index;
-      s += '<line x1="' + mx + '" x2="' + mx + '" y1="' + (m.t - 4) + '" y2="' + (m.t + ph) + '" stroke="' + STATUS.critical + '" stroke-width="1.5"/>';
+      s += '<line x1="' + mx + '" x2="' + mx + '" y1="' + (m.t - 4) + '" y2="' + (m.t + ph) + '" style="stroke:' + STATUS.critical + '" stroke-width="1.5" stroke-dasharray="4 3"/>';
       s += '<text x="' + (mx - 6) + '" y="' + (m.t + 6) + '" text-anchor="end" class="axis-label strong">' + U.esc(opts.marker.label) + '</text>';
     }
     s += '</svg>';
@@ -172,8 +174,8 @@
     var pts = vals.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ');
     var lx = x(vals.length - 1), ly = y(vals[vals.length - 1]);
     return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" aria-hidden="true">' +
-      '<polyline points="' + pts + '" fill="none" stroke="#9fb3c8" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>' +
-      '<circle cx="' + lx + '" cy="' + ly + '" r="3.2" fill="' + (opts.color || SERIES[0]) + '" stroke="#fff" stroke-width="1.5"/></svg>';
+      '<polyline class="spark-line" pathLength="1" points="' + pts + '" fill="none" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<circle class="spark-dot" cx="' + lx + '" cy="' + ly + '" r="3.2" style="fill:' + (opts.color || SERIES[0]) + '" stroke-width="1.5"/></svg>';
   }
 
   /* ---------------------------------------------------------------- tooltip layer */

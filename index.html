@@ -1,13 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
   <title>PCAP Prototype</title>
   <meta name="description" content="PCAP, the Payment Control Assurance Platform: a working prototype for IS4234 Group 4. Synthetic data only.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b2f5b'/%3E%3Cpath d='M16 6l8 3.2v6c0 4.8-3.4 8.6-8 10.4-4.6-1.8-8-5.6-8-10.4v-6z' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M12 16l3 3 5-6' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%2306101d'/%3E%3Ccircle cx='20' cy='20' r='14' fill='none' stroke='%234cc9f0' stroke-opacity='.6' stroke-width='1.6'/%3E%3Ccircle cx='20' cy='20' r='7.5' fill='none' stroke='%234cc9f0' stroke-opacity='.4' stroke-width='1.4'/%3E%3Cpath d='M20 20L20 6A14 14 0 0 1 31 11.5Z' fill='%234cc9f0' fill-opacity='.45'/%3E%3Ccircle cx='26' cy='13' r='2' fill='%23f2b63d'/%3E%3C/svg%3E">
   <script>
+    /* Theme before first paint: dark by default, the saved choice if storage allows it. */
+    (function () {
+      var t = 'dark';
+      try { var s = window.localStorage.getItem('pcap-theme'); if (s === 'light' || s === 'dark') t = s; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
     /* Catch any script error early, show it, and expose it for automated checks. */
     window.__pcapErrors = [];
     window.addEventListener('error', function (e) {
@@ -17,22 +23,34 @@
       if (b) { b.hidden = false; b.textContent = 'JavaScript error: ' + (e.message || e.error); }
     });
   </script>
+  <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <a class="skip" href="#app">Skip to content</a>
   <header class="app-header">
     <div class="brand">
       <div class="logo" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="34" height="34"><rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12"/><path d="M16 6l8 3.2v6c0 4.8-3.4 8.6-8 10.4-4.6-1.8-8-5.6-8-10.4v-6z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M12 16l3 3 5-6" fill="none" stroke="#7fd1ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg class="scope" viewBox="0 0 40 40" width="40" height="40">
+          <circle cx="20" cy="20" r="18.5" class="scope-bg"/>
+          <circle cx="20" cy="20" r="12.5" class="scope-ring"/>
+          <circle cx="20" cy="20" r="6.5" class="scope-ring"/>
+          <path d="M20 2.5v35M2.5 20h35" class="scope-cross"/>
+          <g class="scope-sweep">
+            <path d="M20 20L20 1.5A18.5 18.5 0 0 1 33.08 6.92Z" class="scope-wedge"/>
+            <line x1="20" y1="20" x2="20" y2="2" class="scope-arm"/>
+          </g>
+          <circle cx="27.5" cy="11" r="1.9" class="scope-blip"/>
+        </svg>
       </div>
       <div class="brand-text">
-        <h1 class="app-title">PCAP: Payment Control Assurance Platform <span class="title-note">(prototype, synthetic data)</span></h1>
+        <h1 class="app-title"><span class="brand-mark">PCAP</span><span class="brand-name">Payment Control Assurance Platform</span><span class="title-note">Prototype, synthetic data</span></h1>
         <div class="app-sub">NUS IS4234 Group 4. An overlay on the core payment system, not a replacement. <span id="bizdate"></span></div>
       </div>
     </div>
     <div class="header-controls">
       <label class="role-pick"><span>Acting as</span><select id="role-select" aria-label="Acting as"></select></label>
       <span class="persona" id="persona"></span>
+      <button class="btn header-btn theme-btn" id="theme-btn" type="button" aria-label="Switch to light theme"><span class="theme-ico" aria-hidden="true"></span><span class="theme-label">Light</span></button>
       <button class="btn header-btn" id="reset-btn" type="button">Reset demo data</button>
     </div>
   </header>
@@ -44,7 +62,7 @@
   </main>
   <footer class="app-footer">
     <p><strong>Synthetic data only.</strong> No real people, accounts or payments. The Revlon replay is a simplified synthetic rebuild of a public court case. Not connected to Flexcube or any bank system. Data is kept only in this browser.</p>
-    <p>Prototype for the IS4234 Group 4 report "Approved but Not Understood: Control Design Lessons from Citibank's Revlon Payment Error". Built with help from Claude Code (see README).</p>
+    <p>Prototype for the IS4234 Group 4 report "Approved but Not Understood: Control Design Lessons from Citibank's Revlon Payment Error". Built with help from Claude Code (see README). Fonts: Space Grotesk, IBM Plex Sans and JetBrains Mono under the SIL Open Font License.</p>
   </footer>
   <div id="viz-tooltip" class="viz-tooltip" role="tooltip" hidden></div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
@@ -58,6 +76,7 @@
   <script src="js/util.js"></script>
   <script src="js/store.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/motion.js"></script>
   <script src="js/views/desk.js"></script>
   <script src="js/views/guide.js"></script>
   <script src="js/views/register.js"></script>

@@ -14,16 +14,19 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 - **Online:** https://bchuazw.github.io/is4234-pcap-prototype/
 - On the payment desk, use **Acting as** to switch between Maker, Checker, Approver and Op Risk. On the other screens the **Acting as** menu at the top also has Head of Loan Ops (register owner). When a payment waits for another role, the desk shows a "Switch to ..." button.
 - Everything you do is kept in this browser only (localStorage). **Reset demo data** restores the starting point. If the browser blocks storage, the app still works and shows a notice that changes last until reload.
+- The app opens in a dark theme. The **Light** button in the header switches to a light theme for projectors, and the choice is remembered in this browser (if storage is blocked it lasts until reload).
 
 ## Folder layout
 
 | Path | What it holds |
 |---|---|
 | `index.html` | The single page. Classic scripts only, so it also works from `file://`. |
-| `css/styles.css` | All styles. No external fonts or frameworks. |
+| `css/styles.css` | All styles, with dark and light theme colours as CSS variables. No frameworks. |
+| `fonts/` | Self-hosted fonts (Space Grotesk, IBM Plex Sans, JetBrains Mono, Latin subset, woff2) and their SIL Open Font License files. Nothing is loaded from the internet. |
 | `js/engine.js` | **All rule logic**: R-01 to R-09, the consequence statement, tiers, the Revlon replay and the seeded synthetic test. Loads in the browser and in Node. |
 | `js/store.js` | State, browser storage, payment actions and the tagged event log. |
-| `js/charts.js` | Small inline SVG charts. No chart library. |
+| `js/charts.js` | Small inline SVG charts in the theme colours. No chart library. |
+| `js/motion.js` | Transitions and animations only. It never changes data or events. |
 | `js/views/*.js` | One file per screen. |
 | `js/app.js` | Router, role switcher, reset and the payment detail dialog. |
 | `data/seed-data.js` | Synthetic people, loans, register entries, controls and the Table 4 obligation rows. |
@@ -56,12 +59,22 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 
 **Event log.** Every rule result, gate check, re-key, statement shown, hold, release, register change, reconciliation and test writes an event tagged with its module, rule and obligation row (O1 to O7 from Table 4). M4, M5 and M6 are built from these events. The evidence pack exports them as JSON and CSV.
 
+## Look and motion: the "Control Tower" theme
+
+Payments are treated like flights that need clearance before take-off, which keeps the report's terms but gives the screens one clear idea:
+
+- **Work queue as flight progress strips.** Each payment is a strip with its ID, amount, loan, a tier colour edge (green Tier 1, amber Tier 2, red Tier 3) and its status. Strips slide between "Waiting for you", "In progress" and "Done" when a payment is handed on.
+- **Lifecycle as a clearance track.** The maker, checker, approver, Op Risk and release steps fill in as the payment moves on, and the track turns red for a ground stop and green when the payment is cleared and released.
+- **Tier 3 as a ground stop.** The hard stop banner has a striped barrier edge and says "Ground stop: only Operational Risk can clear this payment for release". The official terms (Tier 1 to 3, M1 to M6, R-01 to R-09, maker, checker, approver) stay as they are in the report.
+- **Motion with a purpose.** Screens fade and rise in, amounts on the consequence card count up while the schedule and payment bars grow, then the "115 times" line appears. Failed checks appear first. A blind re-key mismatch shakes the amount box, and a match glows green. Board KPIs count up and charts draw in once. Animations last about 150 to 400 ms (counting and drawing up to about 0.9 s) and are switched off when the computer is set to reduce motion.
+- **Fonts.** Space Grotesk for headings and numbers, IBM Plex Sans for text and JetBrains Mono for IDs, account legs and rule IDs. All three are under the SIL Open Font License 1.1 (licence texts in `fonts/`).
+
 ## Five minute demo script (for the video)
 
 The **How to demo** screen has a "Go" button for each step that switches role and opens the right screen.
 
 1. **0:00 to 0:20. Open it.** Show the page (GitHub Pages link or `index.html`). Point at the header: prototype, synthetic data. One sentence on the case: about USD 7.8M of interest was meant, about USD 894M of principal went out after six-eyes approval.
-2. **0:20 to 1:15. Maker keys the Revlon replay.** Click "Start the demo with the Revlon replay". The New payment form opens at step 1, Instruction. Under Settlement routing, FRONT and FUND are still "Lenders" and only PRINCIPAL is on the wash account. Click **Review payment** (step 2). The banner says "Tier 3: hard stop" and the consequence card says "This payment will send USD 901.7M to 315 lenders, including USD 893.9M of principal", with bars showing 115 times what the schedule expects. R-04 (FRONT and FUND not set), R-02 (no principal due) and R-01 (USD 893.9M over the schedule) fail. Click **Submit to checker** anyway, as happened in 2020.
+2. **0:20 to 1:15. Maker keys the Revlon replay.** Click "Start the demo with the Revlon replay". The New payment form opens at step 1, Instruction. Under Settlement routing, FRONT and FUND are still "Lenders" and only PRINCIPAL is on the wash account. Click **Review payment** (step 2). The ground stop banner says "Tier 3: hard stop" and the consequence card says "This payment will send USD 901.7M to 315 lenders, including USD 893.9M of principal", with bars showing 115 times what the schedule expects. R-04 (FRONT and FUND not set), R-02 (no principal due) and R-01 (USD 893.9M over the schedule) fail. Click **Submit to checker** anyway, as happened in 2020.
 3. **1:15 to 1:35. Checker.** The stepper shows the payment at Checker review. Click **Switch to Checker**. Type the note "Principal set to wash" and click **Mark checked, send to approver**. Say that the approver will not see this note until after the blind re-key.
 4. **1:35 to 2:35. Approver.** Click **Switch to Approver**. The amounts are hidden, even in the queue. The M3 gate is open (certified, independent, in-house). Open "Your source: agent notice", type 7,820,000 and click **Check amount**. It does not match, so type it again. R-07 escalates, the consequence card appears with the principal amount, and the time on screen is counted for M4. Add a note and click **Send to Operational Risk**.
 5. **2:35 to 3:05. Operational Risk.** Click **Switch to Op Risk**. Show "Why it was held", the "Who saw it" card and the **Evidence trail** button. Write a reason and click **Reject and return to maker**. Optional if time allows: click **Switch to Maker**, then **Edit and resubmit**, set FRONT and FUND to the wash account, review and resubmit. It passes at Tier 2 with only USD 7.8M leaving and the principal staying inside the bank. Check it, re-key 7,820,000, tick the confirmation and release.
@@ -88,7 +101,7 @@ There are 26 tests in `tests/engine.test.js` and `tests/flow.test.js`. They chec
 - the synthetic test is deterministic for a fixed seed, and across seeds every Tier 3 and gate error is stopped
 - the payment desk actions log every step with module, rule and obligation tags, a release by Operational Risk shows up as a reconciliation break, and a maker cannot run an independent reconciliation
 
-The browser screens were also checked in headless Microsoft Edge at 1400, 1024 and 390 px width: the full payment desk flow ran through every role with no JavaScript errors and no sideways scrolling, every step wrote the same event log entries as before the desk redesign, and the app still works when browser storage is blocked.
+The browser screens were also checked in headless Microsoft Edge at 1400, 1024 and 390 px width, in both the dark and light themes: the full payment desk flow ran through every role with no JavaScript errors and no sideways scrolling, every step wrote the same event log entries as before the redesign, the app still works when browser storage is blocked, and it works with reduced motion switched on.
 
 ## Synthetic test results
 

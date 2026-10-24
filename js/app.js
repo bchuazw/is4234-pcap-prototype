@@ -39,8 +39,33 @@
     document.getElementById('tabs').innerHTML = ROUTES.map(function (r) {
       var mods = r.mods.length ? ' title="' + U.esc('Modules ' + r.mods.join(' and ')) + '"' : '';
       return '<a href="#/' + r.id + '" class="tab' + (r.id === cur ? ' active' : '') + '"' + (r.id === cur ? ' aria-current="page"' : '') + mods + '>' +
-        '<span>' + U.esc(r.label) + '</span></a>';
+        '<span>' + U.esc(r.label) + '</span>' + (r.mods.length ? '<span class="tab-mods" aria-hidden="true">' + U.esc(r.mods.join(' ')) + '</span>' : '') + '</a>';
     }).join('');
+  }
+
+  /* ------------------------------------------------------------ theme (dark by default, light for projectors) */
+  var THEME_ICON = {
+    sun: '<svg class="ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    moon: '<svg class="ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.2 10.1A5.6 5.6 0 015.9 2.8a5.6 5.6 0 107.3 7.3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>'
+  };
+  function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
+  function paintThemeButton() {
+    var btn = document.getElementById('theme-btn');
+    if (!btn) return;
+    var light = currentTheme() === 'light';
+    btn.querySelector('.theme-ico').innerHTML = light ? THEME_ICON.moon : THEME_ICON.sun;
+    btn.querySelector('.theme-label').textContent = light ? 'Dark' : 'Light';
+    btn.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
+    btn.setAttribute('title', light ? 'Switch to the dark theme' : 'Switch to the light theme (for projectors)');
+  }
+  function setTheme(t) {
+    var html = document.documentElement;
+    var fade = !(PCAP.motion && PCAP.motion.reduced());
+    if (fade) html.classList.add('theme-fade');
+    html.setAttribute('data-theme', t);
+    try { root.localStorage.setItem('pcap-theme', t); } catch (e) { /* storage blocked: the choice lasts until reload */ }
+    paintThemeButton();
+    if (fade) setTimeout(function () { html.classList.remove('theme-fade'); }, 320);
   }
 
   function renderHeader() {
@@ -62,6 +87,7 @@
   }
 
   function render() {
+    if (PCAP.motion) PCAP.motion.before();
     clearTimers();
     charts.reset();
     charts.hideTip();
@@ -81,6 +107,7 @@
       reportError(err);
     }
     document.title = (ROUTES.filter(function (r) { return r.id === id; })[0] || {}).label + ' | PCAP Prototype';
+    if (PCAP.motion) PCAP.motion.after(id);
   }
 
   function setRole(role, routeId) {
@@ -142,6 +169,8 @@
       store.reset();
     }
     charts.bind();
+    paintThemeButton();
+    document.getElementById('theme-btn').addEventListener('click', function () { setTheme(currentTheme() === 'light' ? 'dark' : 'light'); });
     document.getElementById('role-select').addEventListener('change', function (e) { setRole(e.target.value, currentRoute() === 'guide' ? 'desk' : null); });
     document.getElementById('reset-btn').addEventListener('click', function () {
       if (root.confirm('Reset all demo data? This clears payments, events and register changes made in this browser.')) {

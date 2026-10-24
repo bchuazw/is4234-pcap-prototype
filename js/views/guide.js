@@ -43,19 +43,19 @@
 
     el.innerHTML =
       '<div class="hero card">' +
-      '<div class="hero-text"><h1>Approved, and now understood</h1>' +
+      '<div class="hero-text"><p class="hero-eyebrow">Control tower for payment release</p><h1>Approved, and <em>now understood</em></h1>' +
       '<p><strong>PCAP</strong> is an overlay on the core payment system, not a replacement. Before a payment is released it states in plain words how much money will leave the bank, where it goes and whether it is interest or principal, and it checks that against the loan schedule.</p>' +
       '<p>It only lets certified, independent, in-house approvers release override payments, makes them re-key the amount blind, and holds anything critical for Operational Risk.</p>' +
       '<p>It then watches how approvals happen, whether compensating controls ran, and maps every control event to the obligation it evidences.</p>' +
       '<div class="hero-actions"><button class="btn primary" data-step="1">' + U.icon('play') + ' Start the demo with the Revlon replay</button><a class="btn" href="#/synthetic">See the synthetic test</a></div></div>' +
-      '<div class="hero-case"><div class="hc-label">The case, 11 Aug 2020</div>' +
+      '<div class="hero-case"><div class="hc-label">Incident replay: the case, 11 Aug 2020</div>' +
       '<p>Citibank meant to pay about <strong>USD 7.8M of interest</strong> on Revlon\'s term loan. The core system had no interest-only function, so staff used a workaround that needed <span class="mono">FRONT</span>, <span class="mono">FUND</span> and <span class="mono">PRINCIPAL</span> set to an internal wash account. Only <span class="mono">PRINCIPAL</span> was set.</p>' +
       '<p>About <strong>USD 894M of principal</strong> went to lenders after a maker and checker at the outsourced provider and an approver at Citi all approved it.</p>' +
       '<p class="muted small">Everything in this prototype is synthetic. The replay is a simplified rebuild for testing.</p></div></div>' +
 
       '<div class="card"><div class="card-head"><h2>Five minute demo path</h2><span class="muted small">Each button switches role and opens the right screen</span></div>' +
       '<ol class="steps">' + STEPS.map(function (s) {
-        return '<li><div class="step-n">' + s.n + '</div><div class="step-body"><div class="step-title">' + U.esc(s.title) + '</div><p>' + U.esc(s.text) + '</p></div>' +
+        return '<li><div class="step-n">' + (s.n < 10 ? '0' : '') + s.n + '</div><div class="step-body"><div class="step-title">' + U.esc(s.title) + '</div><p>' + U.esc(s.text) + '</p></div>' +
           '<button class="btn small" data-step="' + s.n + '">Go ' + U.icon('arrow') + '</button></li>';
       }).join('') + '</ol></div>' +
 
