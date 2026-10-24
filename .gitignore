@@ -1,0 +1,21 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Node (no dependencies are needed, but keep the repo clean if someone installs any)
+node_modules/
+npm-debug.log*
+*.log
+
+# Files the app downloads when you try it locally
+pcap-evidence-pack-*.json
+pcap-evidence-pack-*.csv
+pcap-synthetic-test-seed-*.json
+
+# Local screenshots and scratch output
+screenshots-local/
+*.tmp

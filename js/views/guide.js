@@ -1,0 +1,103 @@
+/*
+ * PCAP prototype: "How to demo" screen. What PCAP is, the 5 minute path, module map, rules and tiers.
+ */
+(function (root) {
+  'use strict';
+  var PCAP = root.PCAP;
+  var E = PCAP.engine, U = PCAP.util, store = PCAP.store;
+  var views = PCAP.views = PCAP.views || {};
+
+  var STEPS = [
+    { n: 1, role: 'maker', route: 'desk', preset: 'revlon', title: 'Maker keys the Revlon replay',
+      text: 'Load the Revlon replay. The live pre-check already shows Tier 3: R-04 (FRONT and FUND not set), R-02 (principal not due) and R-01 (USD 893.9M over the schedule). The statement says USD 893,900,000 of PRINCIPAL goes to 315 lenders. Submit it anyway, as happened in 2020.' },
+    { n: 2, role: 'checker', route: 'desk', title: 'Checker marks it checked',
+      text: 'The checker sees the same statement. Add a note such as "Principal set to wash" and send it on. The approver will not see this note until after the blind re-key.' },
+    { n: 3, role: 'approver', route: 'desk', title: 'Approver re-keys blind, then reads the consequence',
+      text: 'The amounts are hidden. Open the agent notice, type 7,820,000 and check. It does not match, so type it again. R-07 escalates, the statement appears, and the payment is a Tier 3 hard stop. Send it to Operational Risk.' },
+    { n: 4, role: 'oprisk', route: 'desk', title: 'Operational Risk decides, with a reason',
+      text: 'Only the second line can release a Tier 3 payment. Pick "Confirmed error", write a reason and reject it back to the maker. Every step is now in the event log.' },
+    { n: 5, role: 'maker', route: 'desk', title: 'Optional: the maker fixes it',
+      text: 'Under "My instructions", choose "Edit and resubmit", set FRONT and FUND to the wash account and resubmit. Now it is Tier 2: only USD 7,820,000 of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000, confirm and release.' },
+    { n: 6, role: 'maker', route: 'desk', preset: 'clean', title: 'Contrast: a clean payment at Tier 1',
+      text: 'Load "Clean interest", submit, check and approve. Tier 1 needs no re-key. The approver\'s real time on the consequence screen is measured for M4.' },
+    { n: 7, role: 'owner', route: 'register', title: 'M1 register',
+      text: 'WA-02 review is overdue and WA-03\'s dispensation is about to expire. As Head of Loan Ops, mark WA-02 reviewed or add a new workaround.' },
+    { n: 8, role: 'oprisk', route: 'analytics', title: 'M4 behaviour analytics',
+      text: 'Team-level rubber-stamp scores (R-08). Citi Approvers TPA has drifted into red: fast looks and fast approvals after Tier 2 warnings.' },
+    { n: 9, role: 'oprisk', route: 'monitor', title: 'M5 control monitor',
+      text: 'Run the same-day reconciliation as Operational Risk. Red, amber and green status for reconciliation, register reviews, dispensations, certifications, holds and the replay regression test (R-09).' },
+    { n: 10, role: 'oprisk', route: 'oversight', title: 'M6 obligations and Board view',
+      text: 'Each obligation row maps to its control, rules and live evidence counts from the event log. Export the evidence pack as JSON and CSV.' },
+    { n: 11, role: 'oprisk', route: 'synthetic', title: 'Synthetic test (report 5.8)',
+      text: 'Run 500 seeded synthetic payments with 25 injected errors through the real engine. See detection by error type and tier, false alarms, added time and the Revlon replay result.' }
+  ];
+
+  function render(el) {
+    var groups = [
+      { g: 'Prevent', mods: ['M2', 'M3'], text: 'Stops a wrong payment before release.' },
+      { g: 'Detect', mods: ['M4', 'M5'], text: 'Finds weak approvals and failed controls.' },
+      { g: 'Govern', mods: ['M1', 'M6'], text: 'Makes workarounds and obligations visible and owned.' }
+    ];
+    var screens = { M1: 'register', M2: 'desk', M3: 'desk', M4: 'analytics', M5: 'monitor', M6: 'oversight' };
+    var rules = Object.keys(E.RULES).map(function (k) { return E.RULES[k]; });
+
+    el.innerHTML =
+      '<div class="hero card">' +
+      '<div class="hero-text"><h1>Approved, and now understood</h1>' +
+      '<p><strong>PCAP</strong> is an overlay on the core payment system, not a replacement. Before a payment is released it states in plain words how much money will leave the bank, where it goes and whether it is interest or principal, and it checks that against the loan schedule.</p>' +
+      '<p>It only lets certified, independent, in-house approvers release override payments, makes them re-key the amount blind, and holds anything critical for Operational Risk.</p>' +
+      '<p>It then watches how approvals happen, whether compensating controls ran, and maps every control event to the obligation it evidences.</p>' +
+      '<div class="hero-actions"><button class="btn primary" data-step="1">' + U.icon('play') + ' Start the demo with the Revlon replay</button><a class="btn" href="#/synthetic">See the synthetic test</a></div></div>' +
+      '<div class="hero-case"><div class="hc-label">The case, 11 Aug 2020</div>' +
+      '<p>Citibank meant to pay about <strong>USD 7.8M of interest</strong> on Revlon\'s term loan. The core system had no interest-only function, so staff used a workaround that needed <span class="mono">FRONT</span>, <span class="mono">FUND</span> and <span class="mono">PRINCIPAL</span> set to an internal wash account. Only <span class="mono">PRINCIPAL</span> was set.</p>' +
+      '<p>About <strong>USD 894M of principal</strong> went to lenders after a maker and checker at the outsourced provider and an approver at Citi all approved it.</p>' +
+      '<p class="muted small">Everything in this prototype is synthetic. The replay is a simplified rebuild for testing.</p></div></div>' +
+
+      '<div class="card"><div class="card-head"><h2>Five minute demo path</h2><span class="muted small">Each button switches role and opens the right screen</span></div>' +
+      '<ol class="steps">' + STEPS.map(function (s) {
+        return '<li><div class="step-n">' + s.n + '</div><div class="step-body"><div class="step-title">' + U.esc(s.title) + '</div><p>' + U.esc(s.text) + '</p></div>' +
+          '<button class="btn small" data-step="' + s.n + '">Go ' + U.icon('arrow') + '</button></li>';
+      }).join('') + '</ol></div>' +
+
+      '<div class="card"><div class="card-head"><h2>Six modules</h2><span class="muted small">Prevent, Detect, Govern</span></div><div class="mod-grid">' +
+      groups.map(function (g) {
+        return '<div class="mod-col mod-' + g.g.toLowerCase() + '"><div class="mod-col-head">' + g.g + '</div><p class="muted small">' + g.text + '</p>' +
+          g.mods.map(function (m) {
+            var mm = E.MODULES[m];
+            return '<a class="mod-card" href="#/' + screens[m] + '">' + U.moduleChip(m) + '<span>' + U.esc(mm.name) + '</span></a>';
+          }).join('') + '</div>';
+      }).join('') + '</div>' +
+      '<p class="flow">' + ['Instruction', 'M1 register check', 'M3 authority gate', 'M2 consequence engine', 'Tiered approval and blind re-key', 'Release or hard stop', 'Events to M4, M5, M6'].map(function (x) { return '<span>' + U.esc(x) + '</span>'; }).join(U.icon('arrow')) + '</p></div>' +
+
+      '<div class="card"><div class="card-head"><h2>Control rules R-01 to R-09</h2><span class="muted small">Names follow Table 6 of the report template</span></div><div class="table-wrap"><table class="table rules"><thead><tr><th>Rule</th><th>Module</th><th>Logic</th><th>Action</th><th>Obligations</th><th>Where to see it</th></tr></thead><tbody>' +
+      rules.map(function (r) {
+        return '<tr><td><strong>' + U.esc(r.id) + '</strong> ' + U.esc(r.name) + '</td><td>' + U.moduleChip(r.module) + '</td><td>' + U.esc(r.logic) + '</td><td>' + U.esc(r.action) + '</td><td>' + r.obligations.map(U.obligationChip).join(' ') + '</td><td>' + U.esc(r.screen) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>' +
+
+      '<div class="card"><div class="card-head"><h2>Tiers</h2></div><div class="tier-grid">' +
+      [1, 2, 3].map(function (t) { return '<div class="tier-card">' + U.tierBadge(t, { big: true }) + '<p>' + U.esc(E.TIERS[t].action) + '</p></div>'; }).join('') +
+      '</div><p class="muted small">Any payment using a valid registered override is at least Tier 2. R-05 and R-06 failures close the M3 gate for that approver whatever the tier.</p></div>' +
+
+      '<div class="card notes"><h2>Good to know</h2><ul>' +
+      '<li>No login. Use the <strong>Role</strong> menu at the top to switch between Maker, Checker, Approver, Operational Risk and Head of Loan Ops.</li>' +
+      '<li>All data is synthetic and stays in this browser (localStorage). <strong>Reset demo data</strong> restores the starting point.</li>' +
+      '<li>The prototype is not connected to any core banking system. The Flexcube-style screen is a simulation.</li>' +
+      '<li>Rule logic lives in one file, <span class="mono">js/engine.js</span>, which also runs the Node unit tests.</li></ul></div>';
+
+    el.onclick = function (e) {
+      var b = e.target.closest('[data-step]');
+      if (!b) return;
+      var s = STEPS.filter(function (x) { return x.n === +b.getAttribute('data-step'); })[0];
+      if (!s) return;
+      var st = store.st();
+      if (s.preset) {
+        st.ui = st.ui || {};
+        st.ui.makerDraft = PCAP.views.desk.PRESETS[s.preset]();
+      }
+      PCAP.app.setRole(s.role, s.route);
+      window.scrollTo(0, 0);
+    };
+  }
+
+  views.guide = { render: render, STEPS: STEPS };
+})(typeof globalThis !== 'undefined' ? globalThis : this);

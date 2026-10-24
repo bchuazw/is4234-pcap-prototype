@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PCAP Prototype</title>
+  <meta name="description" content="PCAP, the Payment Control Assurance Platform: a working prototype for IS4234 Group 4. Synthetic data only.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b2f5b'/%3E%3Cpath d='M16 6l8 3.2v6c0 4.8-3.4 8.6-8 10.4-4.6-1.8-8-5.6-8-10.4v-6z' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M12 16l3 3 5-6' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+  <script>
+    /* Catch any script error early, show it, and expose it for automated checks. */
+    window.__pcapErrors = [];
+    window.addEventListener('error', function (e) {
+      window.__pcapErrors.push(String(e.message || e.error));
+      document.documentElement.setAttribute('data-js-errors', String(window.__pcapErrors.length));
+      var b = document.getElementById('error-banner');
+      if (b) { b.hidden = false; b.textContent = 'JavaScript error: ' + (e.message || e.error); }
+    });
+  </script>
+</head>
+<body>
+  <a class="skip" href="#app">Skip to content</a>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="34" height="34"><rect width="32" height="32" rx="7" fill="#ffffff" fill-opacity="0.12"/><path d="M16 6l8 3.2v6c0 4.8-3.4 8.6-8 10.4-4.6-1.8-8-5.6-8-10.4v-6z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M12 16l3 3 5-6" fill="none" stroke="#7fd1ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="brand-text">
+        <h1 class="app-title">PCAP: Payment Control Assurance Platform <span class="title-note">(prototype, synthetic data)</span></h1>
+        <div class="app-sub">NUS IS4234 Group 4. An overlay on the core payment system, not a replacement. <span id="bizdate"></span></div>
+      </div>
+    </div>
+    <div class="header-controls">
+      <label class="role-pick"><span>Role</span><select id="role-select" aria-label="Switch role"></select></label>
+      <span class="persona" id="persona"></span>
+      <button class="btn header-btn" id="reset-btn" type="button">Reset demo data</button>
+    </div>
+  </header>
+  <nav class="tabs" id="tabs" aria-label="Screens"></nav>
+  <div id="error-banner" class="banner bad" role="alert" hidden></div>
+  <div id="banner"></div>
+  <main id="app" tabindex="-1">
+    <noscript><div class="card"><p>PCAP needs JavaScript. Open this page in a current browser such as Edge, Chrome, Firefox or Safari.</p></div></noscript>
+  </main>
+  <footer class="app-footer">
+    <p><strong>Synthetic data only.</strong> No real people, accounts or payments. The Revlon replay is a simplified synthetic rebuild of a public court case. Not connected to Flexcube or any bank system. Data is kept only in this browser.</p>
+    <p>Prototype for the IS4234 Group 4 report "Approved but Not Understood: Control Design Lessons from Citibank's Revlon Payment Error". Built with help from Claude Code (see README).</p>
+  </footer>
+  <div id="viz-tooltip" class="viz-tooltip" role="tooltip" hidden></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <dialog id="detail-dialog" class="detail-dialog" aria-label="Payment details">
+    <div class="dlg-bar"><span>Payment details and evidence trail</span><button class="btn small" id="detail-close" type="button">Close</button></div>
+    <div id="detail-body"></div>
+  </dialog>
+
+  <script src="data/seed-data.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/views/desk.js"></script>
+  <script src="js/views/guide.js"></script>
+  <script src="js/views/register.js"></script>
+  <script src="js/views/analytics.js"></script>
+  <script src="js/views/monitor.js"></script>
+  <script src="js/views/oversight.js"></script>
+  <script src="js/views/synthetic.js"></script>
+  <script src="js/views/events.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
