@@ -36,6 +36,16 @@
     INTEREST_VIA_WASH: { id: 'INTEREST_VIA_WASH', label: 'Interest only, principal routed to the wash account (workaround)', short: 'Interest via wash account', workaround: true }
   };
 
+  /* What a payment is, as the approver states it in the blind re-key (R-07) and as PCAP computes it. */
+  var NATURES = {
+    INTEREST: { id: 'INTEREST', label: 'Interest only' },
+    PRINCIPAL_AND_INTEREST: { id: 'PRINCIPAL_AND_INTEREST', label: 'Principal and interest' },
+    PRINCIPAL: { id: 'PRINCIPAL', label: 'Principal only' }
+  };
+
+  /* Why Operational Risk may release a Tier 3 hold. A release is a documented risk acceptance (L5). */
+  var ACCEPT_CATEGORIES = ['False alarm, payment is correct', 'Approved business exception'];
+
   var DEFAULT_CONFIG = {
     toleranceAbs: 500,        // R-01: variance tolerance floor in USD
     tolerancePct: 0.001,      // R-01: or 0.1% of the expected amount, whichever is larger
@@ -51,7 +61,9 @@
     expiringDays: 30,         // R-09: certifications and dispensations expiring within 30 days are amber
     reviewRedDays: 30,        // R-09: register review overdue by more than 30 days is red
     regressionMaxDays: 31,    // R-09: replay regression test must run at least monthly
-    reconCutoff: '18:00'      // R-09: same-day reconciliation cut-off
+    reconCutoff: '18:00',     // R-09: same-day reconciliation cut-off
+    m4MinTeam: 3,             // R-08: a team score is shown only for teams of at least 3 approvers (PDPA, no one singled out)
+    reasonMinChars: 15        // Operational Risk decisions need a written reason of at least 15 characters
   };
 
   var MODULES = {
@@ -84,7 +96,7 @@
       logic: 'The approver must not be the maker or checker, must not sit in their team or reporting line, and must be an in-house (Citi) employee for override payments.',
       action: 'M3 gate closes for this approver. Blocked attempt logged. Reassign to an independent in-house approver.' },
     'R-07': { id: 'R-07', name: 'Active confirmation', module: 'M2', obligations: ['O2'], screen: 'Payment desk (approver)',
-      logic: 'At Tier 2 and 3 the approver re-keys the outgoing amount without seeing the maker\'s figure or the checker\'s note. PCAP compares it with the amount it computed.',
+      logic: 'At Tier 2 and 3 the approver re-keys the outgoing amount and says whether it is interest, principal or both, without seeing the maker\'s figure or the checker\'s note. PCAP compares both with what it computed.',
       action: 'First mismatch: re-check prompt, logged. Second mismatch: Tier 3 hard stop.' },
     'R-08': { id: 'R-08', name: 'Rubber-stamp score', module: 'M4', obligations: ['O2', 'O5'], screen: 'M4 analytics',
       logic: 'Weekly team score from 0 to 100. 40 points for fast looks at the consequence screen (under 8 seconds at Tier 2 and 3), 30 for re-key slips (the approver\'s own first figure was wrong, a 20% slip rate scores all 30), 30 for Tier 2 approvals within 5 seconds of the warning. Mismatches that end in an escalation count as catches, not slips.',
@@ -100,7 +112,7 @@
   var TIERS = {
     1: { id: 1, name: 'Tier 1', label: 'Routine', action: 'Normal release after the approver reads the consequence statement.' },
     2: { id: 2, name: 'Tier 2', label: 'Elevated', action: 'Extra confirmation: blind re-key of the amount, then an explicit confirmation of the consequence statement.' },
-    3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. Only Operational Risk (second line) can release, with a recorded reason.' }
+    3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. Only Operational Risk (second line) can release it, by recording a risk acceptance with a reason, the first-line risk owner and an expiry.' }
   };
 
   /* ------------------------------------------------------------------ */
@@ -266,6 +278,7 @@
       };
     },
     approverExpects: 7820000,
+    approverExpectsNature: 'INTEREST',
     passRule: 'Pass only if R-01, R-02 and R-04 all fire, the payment is held at Tier 3 and the approver screen shows the principal amount (report 5.8).'
   };
 
@@ -335,6 +348,15 @@
       partialWash: washSet.length > 0 && !allWash
     };
   }
+
+  /* The nature of what leaves the bank: interest only, principal only, both, or nothing. */
+  function natureOf(c) {
+    if (!c || c.externalTotal <= 0) return 'NONE';
+    if (c.externalPrincipal > 0 && c.externalInterest > 0) return 'PRINCIPAL_AND_INTEREST';
+    if (c.externalPrincipal > 0) return 'PRINCIPAL';
+    return 'INTEREST';
+  }
+  function natureLabel(n) { return NATURES[n] ? NATURES[n].label : n === 'NONE' ? 'Nothing' : String(n || ''); }
 
   function expectedFor(loan, date) {
     var line = null;
@@ -546,21 +568,33 @@
     return { rule: 'R-06', status: 'pass', message: approver.name + ' (' + approver.employer + ', ' + approver.team + ') is independent of the maker and checker' + (ov.used ? ' and in-house, as override payments require' : '') + '.' };
   }
 
-  /* R-07: compare the approver's blind re-key with the computed outgoing amount. */
+  /* R-07: compare the approver's blind re-key with what PCAP computed.
+     An attempt is an amount, or { amount, nature } where nature is INTEREST, PRINCIPAL_AND_INTEREST or PRINCIPAL.
+     When the approver states the nature, it must match too (report 3.1.4: amount and nature). */
   function rekeyResult(ev, attempts, cfg) {
     cfg = config(cfg);
     var target = ev.consequence.externalTotal;
+    var computed = natureOf(ev.consequence);
     var checks = (attempts || []).map(function (a) {
-      var amount = round2(num(a));
+      var x = a !== null && typeof a === 'object' ? a : { amount: a };
+      var amount = round2(num(x.amount));
       var diff = round2(amount - target);
-      return { amount: amount, diff: diff, match: Math.abs(diff) <= cfg.rekeyTolerance };
+      var amountMatch = Math.abs(diff) <= cfg.rekeyTolerance;
+      var natureMatch = !x.nature || x.nature === computed;
+      return { amount: amount, nature: x.nature || null, diff: diff, amountMatch: amountMatch, natureMatch: natureMatch, match: amountMatch && natureMatch };
     });
-    if (!checks.length) return { rule: 'R-07', status: 'pending', checks: [], message: 'Waiting for the approver to re-key the amount.' };
-    if (checks[0].match) return { rule: 'R-07', status: 'pass', firstMatch: true, checks: checks, message: 'Re-keyed amount matches the computed amount on the first attempt.' };
-    if (checks.length < 2) return { rule: 'R-07', status: 'retry', firstMatch: false, checks: checks, message: 'Your figure does not match what this instruction will send. Check your source and re-key once more. A second mismatch sends the payment to Operational Risk.' };
-    if (checks[1].match) return { rule: 'R-07', status: 'pass', firstMatch: false, checks: checks, message: 'Matched on the second attempt. The first attempt is logged as a mismatch.' };
-    return { rule: 'R-07', status: 'fire', tier: 3, firstMatch: false, checks: checks,
-      message: 'The approver expected ' + fmtUSD(checks[1].amount) + ' but this instruction would send ' + fmtUSD(target) + '. Escalated to Tier 3.' };
+    if (!checks.length) return { rule: 'R-07', status: 'pending', checks: [], computedNature: computed, message: 'Waiting for the approver to re-key the amount.' };
+    if (checks[0].match) return { rule: 'R-07', status: 'pass', firstMatch: true, checks: checks, computedNature: computed, message: 'Re-keyed amount' + (checks[0].nature ? ' and payment type match' : ' matches') + ' what PCAP computed on the first attempt.' };
+    if (checks.length < 2) return { rule: 'R-07', status: 'retry', firstMatch: false, checks: checks, computedNature: computed, message: 'Your ' + mismatchWhat(checks[0]) + ' does not match what this instruction will send. Check your source and re-key once more. A second mismatch sends the payment to Operational Risk.' };
+    if (checks[1].match) return { rule: 'R-07', status: 'pass', firstMatch: false, checks: checks, computedNature: computed, message: 'Matched on the second attempt. The first attempt is logged as a mismatch.' };
+    var said = fmtUSD(checks[1].amount) + (checks[1].nature ? ' (' + natureLabel(checks[1].nature).toLowerCase() + ')' : '');
+    var will = fmtUSD(target) + (checks[1].nature ? ' (' + natureLabel(computed).toLowerCase() + ')' : '');
+    return { rule: 'R-07', status: 'fire', tier: 3, firstMatch: false, checks: checks, computedNature: computed,
+      message: 'The approver expected ' + said + ' but this instruction would send ' + will + '. Escalated to Tier 3.' };
+  }
+  function mismatchWhat(chk) {
+    if (!chk.amountMatch && !chk.natureMatch) return 'amount and payment type';
+    return chk.amountMatch ? 'payment type' : 'figure';
   }
 
   /* Apply an R-07 outcome to an evaluation and recompute the tier. */
@@ -643,6 +677,73 @@
       outcome: tier === 3 ? 'HARD_STOP' : tier === 2 ? 'ELEVATED' : 'ROUTINE',
       statement: statement
     };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Releasing a Tier 3 hold: a documented risk acceptance (L5 slide 41) */
+  /* ------------------------------------------------------------------ */
+
+  /* The first line owns the risk, Operational Risk (second line) challenges and records it,
+     Internal Audit (third line) reviews it. The acceptance covers one payment and ends with
+     the business day, so it can never be reused as a standing approval.
+     input: { paymentId, ev, category, reason, ownerId, recordedById, users, businessDate, makerId, checkerId, approverId } */
+  function riskAcceptance(input, cfgIn) {
+    var cfg = config(cfgIn);
+    var problems = [];
+    var reason = String(input.reason || '').trim();
+    var owner = byId(input.users, input.ownerId);
+    var recorder = byId(input.users, input.recordedById);
+    if (reason.length < cfg.reasonMinChars) problems.push('Record a reason of at least ' + cfg.reasonMinChars + ' characters.');
+    if (ACCEPT_CATEGORIES.indexOf(input.category) < 0) problems.push('Choose why it is released: false alarm or approved business exception.');
+    if (!recorder || (recorder.roles || []).indexOf('oprisk') < 0) problems.push('Only Operational Risk (second line) can record the acceptance and release a Tier 3 hold.');
+    if (!owner) problems.push('Name the first-line risk owner who accepts the risk.');
+    else {
+      if ((owner.roles || []).indexOf('owner') < 0) problems.push(owner.name + ' is not a first-line risk owner.');
+      if (!owner.inHouse) problems.push('The risk owner must be a bank employee, not the outsourced provider.');
+      if ([input.makerId, input.checkerId, input.approverId, input.recordedById].indexOf(owner.id) >= 0) problems.push(owner.name + ' took part in this payment, so cannot also accept its risk.');
+    }
+    if (problems.length) return { ok: false, problems: problems };
+    var ev = input.ev;
+    var falseAlarm = input.category === ACCEPT_CATEGORIES[0];
+    return {
+      ok: true,
+      problems: [],
+      record: {
+        paymentId: input.paymentId,
+        category: input.category,
+        reason: reason,
+        ownerId: owner.id,
+        recordedById: recorder.id,
+        acceptedOn: input.businessDate,
+        expires: input.businessDate,
+        scope: 'This payment only. Expires at the end of the business day and cannot be reused for another payment.',
+        followUp: falseAlarm
+          ? 'Correct the loan schedule line so the next payment matches it (data quality). Owner: ' + owner.name
+          : 'Record the exception in the loan schedule or the M1 register so it does not recur. Owner: ' + owner.name,
+        assessed: ev ? { tier: ev.tier, rules: ev.hits.slice(), external: ev.consequence.externalTotal, principalOut: ev.consequence.externalPrincipal, expected: ev.expected.remainingTotal, variance: round2(ev.consequence.externalTotal - ev.expected.remainingTotal) } : null
+      }
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* M4: outsourced checks at team level (MAS Notice 658 monitoring)     */
+  /* ------------------------------------------------------------------ */
+
+  /* rows: [{ team, kind: 'keyed'|'checked'|'returned', tier }]. Tier is PCAP's tier when the step happened. */
+  function summariseOutsourced(rows) {
+    var by = {};
+    (rows || []).forEach(function (r) {
+      var t = by[r.team] = by[r.team] || { team: r.team, keyed: 0, keyedTier3: 0, checked: 0, sentOnTier3: 0, returned: 0 };
+      if (r.kind === 'keyed') { t.keyed += 1; if (r.tier === 3) t.keyedTier3 += 1; }
+      if (r.kind === 'checked') { t.checked += 1; if (r.tier === 3) t.sentOnTier3 += 1; }
+      if (r.kind === 'returned') t.returned += 1;
+    });
+    return Object.keys(by).sort().map(function (k) { return by[k]; });
+  }
+
+  /* A team score is only reported for teams big enough that it cannot point at one person. */
+  function teamReportable(approverCount, cfgIn) {
+    return approverCount >= config(cfgIn).m4MinTeam;
   }
 
   /* ------------------------------------------------------------------ */
@@ -824,7 +925,8 @@
   function replayCheck(ctx, ids) {
     var instr = REPLAY.instruction(ids);
     var ev = evaluate(instr, ctx);
-    var rk = rekeyResult(ev, [REPLAY.approverExpects, REPLAY.approverExpects], ctx.config);
+    var said = { amount: REPLAY.approverExpects, nature: REPLAY.approverExpectsNature };
+    var rk = rekeyResult(ev, [said, said], ctx.config);
     var after = withRekey(ev, rk);
     var principalShown = after.statement.join(' ').indexOf(fmtUSD(REPLAY.loan.principalOutstanding) + ' of PRINCIPAL') >= 0;
     var need = ['R-01', 'R-02', 'R-04'];
@@ -973,7 +1075,7 @@
           var orig = rng.pick(earlier);
           var di = clone(orig.instr);
           di.id = id; di.makerId = makerId; di.checkerId = checkerId; di.approverId = approverId; di.processDate = date > orig.instr.processDate ? date : orig.instr.processDate;
-          payments.push({ id: id, instr: di, error: 'DUPLICATE', stale: false, approverExpects: orig.approverExpects, reconExpected: 0, dupOf: orig.id, variant: 'copy of ' + orig.id, teamKey: teamKey });
+          payments.push({ id: id, instr: di, error: 'DUPLICATE', stale: false, approverExpects: orig.approverExpects, approverNature: orig.approverNature, reconExpected: 0, dupOf: orig.id, variant: 'copy of ' + orig.id, teamKey: teamKey });
           continue;
         }
       }
@@ -1009,7 +1111,8 @@
         makerId: makerId, checkerId: checkerId, approverId: approverId
       };
       var correctExternal = round2(interest + principalDue);
-      var rec = { id: id, instr: instr, error: error, stale: false, approverExpects: correctExternal, reconExpected: correctExternal, teamKey: teamKey };
+      /* The approver's source (the agent notice) says what should leave: the amount, and whether it is interest only or principal and interest. */
+      var rec = { id: id, instr: instr, error: error, stale: false, approverExpects: correctExternal, approverNature: principalDue > 0 ? 'PRINCIPAL_AND_INTEREST' : 'INTEREST', reconExpected: correctExternal, teamKey: teamKey };
 
       if (!error && rng.chance(staleRate)) {
         line.interest = round2(interest * (1 + (rng.chance(0.5) ? 1 : -1) * rng.float(0.005, 0.03)));
@@ -1104,9 +1207,9 @@
           rec.outcome = 'RELEASED';
         } else {
           var a1 = rng.chance(beh.slip) ? slipAmount(rng, p.approverExpects) : p.approverExpects;
-          var attempts = [a1];
+          var attempts = [{ amount: a1, nature: p.approverNature }];
           var rk = rekeyResult(ev, attempts, cfg);
-          if (rk.status === 'retry') { attempts.push(p.approverExpects); rk = rekeyResult(ev, attempts, cfg); }
+          if (rk.status === 'retry') { attempts.push({ amount: p.approverExpects, nature: p.approverNature }); rk = rekeyResult(ev, attempts, cfg); }
           rec.rekeyFirstMatch = rk.firstMatch;
           rec.rekey = rekeyKind(rk);
           var after = withRekey(ev, rk);
@@ -1243,8 +1346,8 @@
       window: { from: batch.days[0], to: batch.days[batch.days.length - 1] },
       assumptions: [
         'Clean payments are keyed exactly as the agent notice says. ' + Math.round(batch.staleRate * 1000) / 10 + '% of clean payments read a stale schedule line (0.5% to 3% off), to model the reference-data risk in report 5.9.',
-        'Approvers re-key from their own source (the agent notice). Normal teams slip on ' + TIME_MODEL.normal.slip * 100 + '% of first attempts and the rubber-stamp team (Citi Approvers TPA) on ' + TIME_MODEL.rubber.slip * 100 + '%.',
-        'Operational Risk rejects held error payments and releases held clean payments with a reason.',
+        'Approvers re-key the amount and say whether it is interest, principal or both, from their own source (the agent notice). Normal teams slip on ' + TIME_MODEL.normal.slip * 100 + '% of first attempts and the rubber-stamp team (Citi Approvers TPA) on ' + TIME_MODEL.rubber.slip * 100 + '%.',
+        'Operational Risk rejects held error payments and releases held clean payments with a recorded risk acceptance. The test measures what PCAP holds, so it assumes this second-line decision is right every time.',
         'Added time is a model estimate in seconds of approver work, not a timed walk-through. Tier 3 hold time with Operational Risk is reported separately in minutes.',
         'M5 reconciliation compares each released payment with what should have been paid that day.'
       ]
@@ -1305,6 +1408,8 @@
     LENDERS: LENDERS,
     OVERRIDE_FIELDS: OVERRIDE_FIELDS,
     OPERATIONS: OPERATIONS,
+    NATURES: NATURES,
+    ACCEPT_CATEGORIES: ACCEPT_CATEGORIES,
     DEFAULT_CONFIG: DEFAULT_CONFIG,
     MODULES: MODULES,
     RULES: RULES,
@@ -1335,6 +1440,8 @@
     buildDemoContext: buildDemoContext,
     // M2
     computeConsequence: computeConsequence,
+    natureOf: natureOf,
+    natureLabel: natureLabel,
     expectedFor: expectedFor,
     applyRelease: applyRelease,
     consequenceStatement: consequenceStatement,
@@ -1343,6 +1450,11 @@
     evaluate: evaluate,
     rekeyResult: rekeyResult,
     withRekey: withRekey,
+    // Tier 3 release as a documented risk acceptance
+    riskAcceptance: riskAcceptance,
+    // M4
+    summariseOutsourced: summariseOutsourced,
+    teamReportable: teamReportable,
     // R-08
     rubberStampScore: rubberStampScore,
     rekeyKind: rekeyKind,

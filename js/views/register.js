@@ -109,8 +109,9 @@
         mining.rows.map(function (r) { return '<tr><td class="mono">' + U.esc(r.code) + '</td><td class="num">' + r.uses + '</td><td class="num">' + r.mapped + '</td><td class="num">' + (r.unmapped ? '<strong>' + r.unmapped + '</strong>' : '0') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="empty">No overrides used yet.</p>') +
       '<p class="small">Payments released on an unregistered override (KRI target zero): <strong>' + mining.releasedUnregistered + '</strong></p></div>';
 
-    el.innerHTML = '<div class="page-head"><h1>' + U.moduleChip('M1') + ' Workaround and Legacy Constraint Register</h1><p class="lede">Every approved workaround, why it exists, what it needs, who owns it, how old it is and when it must be reviewed or retired. A workaround that is not here cannot be used to release a payment.</p></div>' +
-      tiles + table + add + mine;
+    el.innerHTML = '<div class="page-head"><h1>' + U.moduleChip('M1') + ' Workaround and Legacy Constraint Register</h1><p class="lede">Every approved workaround, why it exists, what it needs, who owns it, how old it is and when it must be reviewed or retired. A workaround that is not here cannot be used to release a payment.</p>' +
+      '<p class="lede">Each active entry is a documented risk acceptance (L5): the legacy constraint is assessed, the first-line owner accepts what is left, and the dispensation is the date the acceptance expires (MAS TRM 7.3.2 to 7.3.3). In 2020 the wash-account workaround had none of this, so the risk was carried without anyone deciding to accept it (report 3.3.2).</p></div>' +
+      tiles + table + riskCard() + add + mine;
 
     el.onclick = function (e) {
       var b = e.target.closest('[data-act]');
@@ -145,6 +146,21 @@
       U.toast(entry.id + ' added as ' + entry.status + '.', 'ok');
       PCAP.app.render();
     };
+  }
+
+  /* WA-01 in the L5 risk model (report 3.3.2). Qualitative, because the case gives no frequency. */
+  function riskCard() {
+    var rows = [
+      ['Asset value (AV)', 'Up to the whole principal on each use: USD 893.9M in the Revlon replay, USD 310M on LN-1004 today', 'Same. PCAP does not change what is at stake'],
+      ['Exposure factor (EF)', 'Up to 1.0, a completed wire cannot be recalled. About 0.56 in 2020, when about USD 504M was not returned', 'Same once money has left the bank'],
+      ['Annual rate of occurrence (ARO)', 'Low: rare, but every roll-up uses this path', 'Same'],
+      ['Control deficiency (CD)', 'Near 1.0: three fields set by hand, and the approvals checked that they were set, not what they did', 'Low: R-04 holds a missing field, R-02 holds unscheduled principal, R-01 checks the schedule, R-07 re-key, M5 same-day reconciliation']
+    ];
+    return '<div class="card"><div class="card-head"><h2>WA-01 in the L5 risk model</h2><span class="muted small">Risk = AV x EF x ARO x CD (report 3.3.2)</span></div>' +
+      '<div class="table-wrap"><table class="table"><thead><tr><th>Factor</th><th>Without PCAP (2020)</th><th>With PCAP</th></tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr><th>' + U.esc(r[0]) + '</th><td>' + U.esc(r[1]) + '</td><td>' + U.esc(r[2]) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' +
+      '<p class="muted small">Impact (AV x EF) stays the same. PCAP lowers likelihood (ARO x CD) by cutting control deficiency, which is where a control can help at this asset value. The owner accepts the risk that is left until the WA-01 dispensation date, and the core upgrade (refresh plan) is what removes it. Synthetic test: every injected missing FRONT or FUND was held by R-04.</p></div>';
   }
 
   function tile(label, value, sub, rag) {

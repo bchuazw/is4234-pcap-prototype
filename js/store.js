@@ -13,7 +13,7 @@
   var U = PCAP.util;
   var DATA = PCAP.data;
 
-  var VERSION = 4;
+  var VERSION = 5;
   var KEY = 'pcap-prototype-state';
 
   /* Browser storage only. Outside a browser (Node tests) state stays in memory. */
@@ -144,11 +144,17 @@
 
   function evaluateInstr(instr) { return E.evaluate(instr, ctx()); }
 
+  /* The approver's blind re-key attempts: amounts plus what the approver said the payment is. */
+  function rekeyAttempts(a) {
+    if (!a) return [];
+    return a.attempts.map(function (amt, i) { return { amount: amt, nature: (a.natures || [])[i] || null }; });
+  }
+
   /* Fresh evaluation of a stored payment, with the approver's re-key applied. */
   function currentEval(p) {
     var ev = evaluateInstr(p.instr);
     if (p.approval && p.approval.version === p.version && p.approval.attempts.length) {
-      ev = E.withRekey(ev, E.rekeyResult(ev, p.approval.attempts));
+      ev = E.withRekey(ev, E.rekeyResult(ev, rekeyAttempts(p.approval)));
     }
     return ev;
   }
@@ -241,7 +247,8 @@
     p.returnStage = stage || '';
     logEvent({
       type: 'RETURNED', paymentId: id, module: stage === 'gate' ? 'M3' : 'M2', obligations: stage === 'gate' ? ['O1', 'O5'] : ['O2'],
-      actorId: actorId, result: 'info', detail: 'Returned to the maker by ' + userName(actorId) + (reason ? '. Reason: ' + reason : '.')
+      actorId: actorId, result: 'info', detail: 'Returned to the maker by ' + userName(actorId) + (reason ? '. Reason: ' + reason : '.'),
+      data: { stage: stage || '' }
     });
     save();
     return p;
@@ -261,7 +268,7 @@
     var p = payment(id);
     var ev = evaluateInstr(p.instr);
     if (!p.approval || p.approval.version !== p.version) {
-      p.approval = { version: p.version, openedAt: nowISO(), attempts: [], rekey: null, rekeyKind: null, revealedAt: null, gateOpen: ev.gate.open };
+      p.approval = { version: p.version, openedAt: nowISO(), attempts: [], natures: [], rekey: null, rekeyKind: null, revealedAt: null, gateOpen: ev.gate.open };
       ['R-05', 'R-06'].forEach(function (k) {
         var r = ev.results[k];
         logEvent({
@@ -274,21 +281,27 @@
     return currentEval(p);
   }
 
-  function approverRekey(id, amount) {
+  /* nature: what the approver says the payment is (INTEREST, PRINCIPAL_AND_INTEREST or PRINCIPAL), from their own source. */
+  function approverRekey(id, amount, nature) {
     var p = payment(id);
     var ev = evaluateInstr(p.instr);
+    p.approval.natures = p.approval.natures || [];
+    while (p.approval.natures.length < p.approval.attempts.length) p.approval.natures.push(null);
     p.approval.attempts.push(amount);
-    var rk = E.rekeyResult(ev, p.approval.attempts);
+    p.approval.natures.push(nature || null);
+    var rk = E.rekeyResult(ev, rekeyAttempts(p.approval));
     p.approval.rekey = rk.status;
     p.approval.rekeyKind = E.rekeyKind(rk);
+    var said = E.fmtUSD(amount) + (nature ? ', ' + E.natureLabel(nature).toLowerCase() : '');
+    var last = rk.checks[rk.checks.length - 1];
     var detail;
-    if (rk.status === 'retry') detail = 'Blind re-key attempt 1 (' + E.fmtUSD(amount) + ') did not match the computed amount. Approver asked to re-check.';
-    else if (rk.status === 'pass') detail = 'Blind re-key matched the computed amount' + (rk.firstMatch ? ' on the first attempt.' : ' on the second attempt (first attempt logged as a slip).');
+    if (rk.status === 'retry') detail = 'Blind re-key attempt 1 (' + said + ') did not match ' + (last.amountMatch ? 'the payment type' : last.natureMatch ? 'the computed amount' : 'the computed amount or payment type') + '. Approver asked to re-check.';
+    else if (rk.status === 'pass') detail = 'Blind re-key (' + said + ') matched what PCAP computed' + (rk.firstMatch ? ' on the first attempt.' : ' on the second attempt (first attempt logged as a slip).');
     else detail = rk.message;
     logEvent({
       type: 'REKEY', paymentId: id, module: 'M2', rule: 'R-07', result: rk.status === 'retry' ? 'retry' : rk.status,
       actorId: p.approverId, detail: detail,
-      data: { attempt: p.approval.attempts.length, amount: amount, computed: ev.consequence.externalTotal, kind: p.approval.rekeyKind }
+      data: { attempt: p.approval.attempts.length, amount: amount, nature: nature || null, computed: ev.consequence.externalTotal, computedNature: rk.computedNature, kind: p.approval.rekeyKind }
     });
     if (rk.status === 'fire') {
       logEvent({ type: 'ESCALATED', paymentId: id, module: 'M2', rule: 'R-07', result: 'fire', actorId: 'PCAP', detail: 'Second re-key mismatch. Payment escalated to Tier 3.' });
@@ -405,21 +418,45 @@
     return p;
   }
 
-  function opRiskRelease(id, actorId, category, reason, decideSec) {
+  /* Releasing a Tier 3 hold is a documented risk acceptance (L5 slide 41): the first-line owner (Head of Loan Ops by
+     default) owns the risk, Operational Risk challenges and records it, and Internal Audit reviews it. */
+  function opRiskRelease(id, actorId, category, reason, decideSec, opts) {
+    opts = opts || {};
     var p = payment(id);
     if (!p || p.status !== 'HELD') throw new Error('Payment is not on hold.');
     if (!reason || reason.trim().length < 15) throw new Error('Record a reason of at least 15 characters.');
     var ev = currentEval(p);
+    var acc = E.riskAcceptance({
+      paymentId: id, ev: ev, category: category, reason: reason, ownerId: opts.ownerId || 'U-HLO', recordedById: actorId,
+      users: S.state.ctx.users, businessDate: today(), makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId
+    });
+    if (!acc.ok) throw new Error(acc.problems.join(' '));
+    S.state.seq.ra = (S.state.seq.ra || 0) + 1;
+    var rec = acc.record;
+    rec.id = 'RA-' + ('000' + S.state.seq.ra).slice(-4);
+    rec.at = nowISO();
     var minutes = Math.round((now() - new Date(p.heldAt)) / 6000) / 10;
+    logEvent({
+      type: 'RISK_ACCEPTED', paymentId: id, module: 'M2', obligations: ['O1', 'O2'], actorId: actorId, result: 'info',
+      detail: 'Risk acceptance ' + rec.id + ' recorded by ' + userName(actorId) + ' (Operational Risk, second line). Risk owner: ' + userName(rec.ownerId) + ' (first line). ' + category + '. Reason: ' + rec.reason + ' Assessed by PCAP at Tier ' + ev.tier + (ev.hits.length ? ' (' + ev.hits.join(', ') + ')' : '') + '. Scope: this payment only. Expires ' + E.fmtDate(rec.expires) + '. Follow-up: ' + rec.followUp + '.',
+      data: { acceptance: rec.id, ownerId: rec.ownerId, category: category, expires: rec.expires, assessed: rec.assessed }
+    });
     doRelease(p, ev, actorId, true);
-    p.opRisk = { decision: 'release', category: category, reason: reason.trim(), at: nowISO(), by: actorId, minutesHeld: minutes, decideSec: decideSec || null };
+    p.opRisk = { decision: 'release', category: category, reason: rec.reason, at: nowISO(), by: actorId, minutesHeld: minutes, decideSec: decideSec || null, acceptance: rec };
     logEvent({
       type: 'OPRISK_RELEASED', paymentId: id, module: 'M2', obligations: ['O2'], actorId: actorId, result: 'info',
-      detail: 'Released by Operational Risk (' + category + ') after ' + minutes + ' min on hold. Reason: ' + reason.trim() + ' ' + E.fmtUSD(ev.consequence.externalTotal) + ' left the bank.',
-      data: { category: category, minutesHeld: minutes, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal, hits: ev.hits }
+      detail: 'Released by Operational Risk under risk acceptance ' + rec.id + ' (' + category + ') after ' + minutes + ' min on hold. Reason: ' + rec.reason + ' ' + E.fmtUSD(ev.consequence.externalTotal) + ' left the bank.',
+      data: { category: category, acceptance: rec.id, minutesHeld: minutes, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal, hits: ev.hits }
     });
     save();
     return p;
+  }
+
+  /* Every Tier 3 release with its risk acceptance, newest first, for the Board and Internal Audit. */
+  function riskAcceptances() {
+    return S.state.payments.filter(function (p) { return p.opRisk && p.opRisk.acceptance; })
+      .map(function (p) { return { payment: p, acceptance: p.opRisk.acceptance }; })
+      .sort(function (a, b) { return a.acceptance.at < b.acceptance.at ? 1 : -1; });
   }
 
   function opRiskReject(id, actorId, reason, decideSec) {
@@ -523,7 +560,13 @@
 
   function controlHealth() { return E.controlHealth(healthInput()); }
 
+  /* Internal Audit (third line) reviews controls but does not run them, or it would be auditing its own work. */
+  function assertNotAudit(actorId) {
+    if (roleOf(actorId) === 'audit') throw new Error('Internal Audit (third line) reviews controls but does not run them.');
+  }
+
   function runReconciliation(actorId) {
+    assertNotAudit(actorId);
     var pays = healthPayments();
     var rec = E.reconcile(pays, today());
     var independent = !E.involvedIn(pays, actorId, today());
@@ -552,6 +595,7 @@
   }
 
   function runRegressionTest(actorId) {
+    assertNotAudit(actorId);
     var r = E.replayCheck(freshReplayContext(), { makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1' });
     var run = { date: today(), at: nowISO(), by: actorId, pass: r.pass, detail: r.detail, tier: r.tier, hits: r.hits };
     S.state.regressionRuns.push(run);
@@ -602,7 +646,7 @@
   function seedM4(bd) {
     var rng = E.createRng('pcap-m4-history');
     var teams = DATA.approverTeams;
-    var members = { 'Citi Approvers DE': ['U-AP1', 'U-AP3'], 'Citi Approvers NY': ['U-AP2'], 'Citi Approvers TPA': ['U-AP4'] };
+    var members = { 'Citi Approvers DE': ['U-AP1', 'U-AP3', 'U-AP5'], 'Citi Approvers NY': ['U-AP2', 'U-AP6', 'U-AP7'], 'Citi Approvers TPA': ['U-AP4', 'U-AP8', 'U-AP9'] };
     var monday = mondayOf(bd);
     var weeks = [], current = [];
     for (var w = -7; w <= 0; w++) {
@@ -648,7 +692,8 @@
       escapes: [0, 0, 1, 0, 0, 0, 0],
       lateRecons: [0, 0, 1, 0, 0, 0, 0],
       lapsedCerts: [0, 0, 0, 0, 1, 1, 1],
-      overdueReviews: [0, 0, 0, 0, 0, 1, 1]
+      overdueReviews: [0, 0, 0, 0, 0, 1, 1],
+      legacyAttention: [0, 0, 0, 1, 1, 1, 2]
     };
   }
 
@@ -686,7 +731,7 @@
     var p1 = submitInstruction({ loanId: 'LN-1008', operation: 'INTEREST', valueDate: y, interest: 8450000, principal: 0, overrideCode: '', fields: base, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', makerNote: 'Quarterly interest.' }, 'U-MK1');
     setClock(y, '14:09'); checkPayment(p1.id, 'U-CK1', 'Amounts match the instruction.');
     setClock(y, '14:15'); approverOpen(p1.id);
-    setClock(y, '14:16'); approverRekey(p1.id, 845000); approverRekey(p1.id, 845000); approverReveal(p1.id);
+    setClock(y, '14:16'); approverRekey(p1.id, 845000, 'INTEREST'); approverRekey(p1.id, 845000, 'INTEREST'); approverReveal(p1.id);
     setClock(y, '14:17'); approverEscalate(p1.id, { dwellSec: 41, note: 'Notice to lenders says USD 845,000. Instruction would send ten times that.' });
     setClock(y, '14:41'); opRiskReject(p1.id, 'U-OR1', 'Extra zero confirmed with the maker. Returned for correction.', 95);
     setClock(y, '14:58'); cancelPayment(p1.id, 'U-MK1');
@@ -718,7 +763,7 @@
     var c2 = E.clone(c.instr); c2.approverId = 'U-AP1';
     submitInstruction(c2, 'U-MK1', c.id);
     at(11); checkPayment(c.id, 'U-CK1', 'Reassigned to a certified approver.');
-    at(12); approverOpen(c.id); approverRekey(c.id, 980000); approverReveal(c.id);
+    at(12); approverOpen(c.id); approverRekey(c.id, 980000, 'INTEREST'); approverReveal(c.id);
     at(13); approverApprove(c.id, { dwellSec: 23.2, confirmed: true });
   }
 
@@ -737,7 +782,7 @@
       regressionRuns: [],
       m4: seedM4(bd),
       kri: seedKri(),
-      seq: { pay: 1000, ev: 0 },
+      seq: { pay: 1000, ev: 0, ra: 0 },
       synthetic: null,
       ui: { deskSelected: {}, makerDraft: null }
     };
@@ -801,6 +846,8 @@
     approverEscalate: approverEscalate,
     opRiskRelease: opRiskRelease,
     opRiskReject: opRiskReject,
+    riskAcceptances: riskAcceptances,
+    rekeyAttempts: rekeyAttempts,
     addWorkaround: addWorkaround,
     reviewWorkaround: reviewWorkaround,
     approveWorkaround: approveWorkaround,

@@ -24,9 +24,16 @@
       { id: 'U-AP2', name: 'Marco O.', employer: 'Citi', inHouse: true, team: 'Citi Approvers NY', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: -24 }] },
       { id: 'U-AP3', name: 'Tom W.', employer: 'Citi', inHouse: true, team: 'Citi Approvers DE', title: 'Assistant manager, loan operations', roles: ['approver'], reportsTo: 'U-AP1', approvalLimit: 50000000, certs: [] },
       { id: 'U-AP4', name: 'Grace T.', employer: 'Citi', inHouse: true, team: 'Citi Approvers TPA', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: 19 }] },
+      /* More approvers so every M4 team has at least three people and a team score never points at one person. */
+      { id: 'U-AP5', name: 'Hannah K.', employer: 'Citi', inHouse: true, team: 'Citi Approvers DE', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 500000000, certs: [{ type: 'WA-01', validOffset: 160 }] },
+      { id: 'U-AP6', name: 'Daniel R.', employer: 'Citi', inHouse: true, team: 'Citi Approvers NY', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: 230 }] },
+      { id: 'U-AP7', name: 'Aisha M.', employer: 'Citi', inHouse: true, team: 'Citi Approvers NY', title: 'Assistant manager, loan operations', roles: ['approver'], reportsTo: 'U-AP6', approvalLimit: 50000000, certs: [] },
+      { id: 'U-AP8', name: 'Victor S.', employer: 'Citi', inHouse: true, team: 'Citi Approvers TPA', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: 120 }] },
+      { id: 'U-AP9', name: 'Mei L.', employer: 'Citi', inHouse: true, team: 'Citi Approvers TPA', title: 'Assistant manager, loan operations', roles: ['approver'], reportsTo: 'U-AP8', approvalLimit: 50000000, certs: [] },
       { id: 'U-OR1', name: 'Rana H.', employer: 'Citi', inHouse: true, team: 'Citi Operational Risk', title: 'Operational Risk, second line', roles: ['oprisk'], reportsTo: null, approvalLimit: 0, certs: [] },
       { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations, first line owner', roles: ['owner'], reportsTo: null, approvalLimit: 0, certs: [] },
-      { id: 'U-TEC', name: 'Evan L.', employer: 'Citi', inHouse: true, team: 'Citi Technology', title: 'Tech lead, payments platform', roles: ['tech'], reportsTo: null, approvalLimit: 0, certs: [] }
+      { id: 'U-TEC', name: 'Evan L.', employer: 'Citi', inHouse: true, team: 'Citi Technology', title: 'Tech lead, payments platform', roles: ['tech'], reportsTo: null, approvalLimit: 0, certs: [] },
+      { id: 'U-IA1', name: 'Noor A.', employer: 'Citi', inHouse: true, team: 'Citi Internal Audit', title: 'Internal Audit, third line', roles: ['audit'], reportsTo: null, approvalLimit: 0, certs: [] }
     ],
 
     /* Demo personas behind the role switcher. */
@@ -35,7 +42,8 @@
       { id: 'checker', label: 'Checker (Wipro ops)', userId: 'U-CK1' },
       { id: 'approver', label: 'Approver (Citi, in-house)', userId: 'U-AP1' },
       { id: 'oprisk', label: 'Operational Risk (second line)', userId: 'U-OR1' },
-      { id: 'owner', label: 'Head of Loan Ops (register owner)', userId: 'U-HLO' }
+      { id: 'owner', label: 'Head of Loan Ops (risk owner)', userId: 'U-HLO' },
+      { id: 'audit', label: 'Internal Audit (third line)', userId: 'U-IA1' }
     ],
 
     /* Loans with schedules. "offset" is days from the business date. */

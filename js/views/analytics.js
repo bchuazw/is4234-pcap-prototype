@@ -20,13 +20,41 @@
     });
   }
 
+  /* Approvers per team, so a team score is only shown when it cannot point at one person. */
+  function teamSize(team) {
+    return st().ctx.users.filter(function (u) { return u.team === team && (u.roles || []).indexOf('approver') >= 0; }).length;
+  }
+
   function teamSummaries() {
     var cur = currentSamples();
     return DATA.approverTeams.map(function (team) {
       var s = E.summariseReviews(cur.filter(function (x) { return x.team === team; }));
       s.team = team;
+      s.size = teamSize(team);
+      s.reportable = E.teamReportable(s.size);
       return s;
     });
+  }
+
+  /* The outsourced provider (Wipro), at provider level, from the event log. The bank monitors the service, the provider manages its own staff. */
+  function outsourcedTeams() {
+    var s = st();
+    var tierAt = {};
+    var rows = [];
+    s.events.forEach(function (e) {
+      if (!e.paymentId) return;
+      var actor = store.user(e.actorId);
+      var outsourced = actor && !actor.inHouse;
+      if (e.type === 'SUBMITTED' || e.type === 'RESUBMITTED') {
+        tierAt[e.paymentId] = e.data ? e.data.tier : null;
+        if (outsourced) rows.push({ team: actor.employer, kind: 'keyed', tier: tierAt[e.paymentId] });
+      } else if (e.type === 'CHECKED' && outsourced) {
+        rows.push({ team: actor.employer, kind: 'checked', tier: tierAt[e.paymentId] });
+      } else if (e.type === 'RETURNED' && outsourced && e.data && e.data.stage === 'checker') {
+        rows.push({ team: actor.employer, kind: 'returned', tier: tierAt[e.paymentId] });
+      }
+    });
+    return E.summariseOutsourced(rows);
   }
 
   function opRiskDesk() {
@@ -42,7 +70,8 @@
     var teams = teamSummaries();
     var cur = currentSamples();
     var all = E.summariseReviews(cur);
-    var worst = teams.slice().sort(function (a, b) { return b.score - a.score; })[0];
+    var worst = teams.filter(function (t) { return t.reportable; }).sort(function (a, b) { return b.score - a.score; })[0];
+    var vendor = outsourcedTeams();
     var weeks = [];
     m4.weeks.forEach(function (w) { if (weeks.indexOf(w.week) < 0) weeks.push(w.week); });
     weeks.sort();
@@ -67,7 +96,7 @@
     var isOpRisk = st().role === 'oprisk';
 
     var html = '<div class="page-head"><h1>' + U.moduleChip('M4') + ' Approval Behaviour Analytics</h1><p class="lede">How approvals happen, not just that they happened. Signals are combined into the R-08 rubber-stamp score per team, scored weekly and reported to Operational Risk in the monthly control report. M4 never blocks a payment and never treats time on screen as a pass mark.</p></div>' +
-      '<div class="banner privacy">' + U.icon('shield') + '<span><strong>Privacy by design.</strong> Team level by default. Named individuals only for Tier 2 and 3 payments, by Operational Risk, with a reason that is logged. Purpose is payment control, not productivity. Staff are told, and the Data Protection Officer is consulted before launch (PDPA purpose and notification).</span></div>' +
+      '<div class="banner privacy">' + U.icon('shield') + '<span><strong>Privacy by design.</strong> Team level by default, and a team score is shown only for teams of at least ' + E.DEFAULT_CONFIG.m4MinTeam + ' approvers, so it never points at one person. Only three signals, all from Tier 2 and 3 approvals on this screen, nothing else about the person. Named individuals only by Operational Risk, with a reason that is logged. Purpose is payment control, not productivity, and M4 never decides discipline on its own. Staff are told, and the Data Protection Officer is consulted before launch (PDPA purpose and notification).</span></div>' +
       '<div class="tiles">' +
       tile('Median time on the consequence screen (Tier 2 and 3)', all.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(all.medianDwellTier23Sec), all.nTier23 + ' reviews this week, all teams') +
       tile('Re-key slip rate', U.fmtPctPlain(all.mismatchRate), all.nSlips + ' slips and ' + all.nCatches + ' catches in ' + all.nRekeys + ' blind re-keys') +
@@ -85,24 +114,30 @@
       '</div>' +
       '<div class="card"><div class="card-head"><h2>This week by team</h2><span class="muted small">Table view of the chart above</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Team</th><th class="num">Tier 2 and 3 reviews</th><th class="num">Median time (Tier 2 and 3)</th><th class="num">Fast looks</th><th class="num">Re-key slips</th><th class="num">Re-key catches</th><th class="num">Fast Tier 2 approvals</th><th class="num">R-08 score</th><th>Status</th></tr></thead><tbody>' +
       teams.map(function (t) {
-        return '<tr><td>' + U.esc(t.team) + '</td><td class="num">' + t.nTier23 + '</td><td class="num">' + U.esc(t.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(t.medianDwellTier23Sec)) + '</td><td class="num">' + U.fmtPctPlain(t.fastLookShare, 0) + '</td><td class="num">' + U.fmtPctPlain(t.mismatchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.catchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.fastApproveShare, 0) + '</td><td class="num"><strong>' + t.score + '</strong> <span class="small muted">(' + t.parts.fastLook + ' + ' + t.parts.mismatch + ' + ' + t.parts.fastApprove + ')</span></td><td>' + U.ragChip(t.rag) + '</td></tr>';
+        if (!t.reportable) return '<tr><td>' + U.esc(t.team) + '</td><td colspan="8" class="muted small">Only ' + t.size + ' approver' + (t.size === 1 ? '' : 's') + ', so no team score is shown (it would point at one person).</td></tr>';
+        return '<tr><td>' + U.esc(t.team) + ' <span class="small muted">(' + t.size + ' approvers)</span></td><td class="num">' + t.nTier23 + '</td><td class="num">' + U.esc(t.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(t.medianDwellTier23Sec)) + '</td><td class="num">' + U.fmtPctPlain(t.fastLookShare, 0) + '</td><td class="num">' + U.fmtPctPlain(t.mismatchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.catchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.fastApproveShare, 0) + '</td><td class="num"><strong>' + t.score + '</strong> <span class="small muted">(' + t.parts.fastLook + ' + ' + t.parts.mismatch + ' + ' + t.parts.fastApprove + ')</span></td><td>' + U.ragChip(t.rag) + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
       '<p class="muted small">Score = 40 x share of fast looks + 30 x (slip rate / 20%, capped at 1) + 30 x share of fast Tier 2 approvals. A catch (both re-keys disagree with the payment, so it is escalated) is the control working and does not count against the approver. Seeded history is synthetic. Approvals you make in this browser are added to this week.</p></div>' +
       '<div class="grid-2">' +
       '<div class="card"><div class="card-head"><h2>Measured in this browser</h2><span class="muted small">Real time on screen from the payment desk</span></div>' +
-      (live.length ? '<table class="table"><thead><tr><th>Payment</th><th>Team</th><th>Tier</th><th class="num">Time on screen</th><th>Re-key</th><th>Decision</th></tr></thead><tbody>' +
+      (live.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Team</th><th>Tier</th><th class="num">Time on screen</th><th>Re-key</th><th>Decision</th></tr></thead><tbody>' +
         live.map(function (s) {
           var flags = [];
           if (s.tier >= 2 && s.dwellSec < E.DEFAULT_CONFIG.fastLookSec) flags.push('fast look');
           if (s.tier === 2 && s.decision === 'approve' && s.dwellSec < E.DEFAULT_CONFIG.fastApproveSec) flags.push('fast approval');
           return '<tr><td><a href="#" data-open-payment="' + U.esc(s.paymentId) + '">' + U.esc(s.paymentId) + '</a></td><td>' + U.esc(s.team.replace('Citi Approvers ', '')) + '</td><td>' + U.tierBadge(s.tier, { noLabel: true }) + '</td><td class="num">' + U.esc(U.fmtSec(s.dwellSec)) + (flags.length ? '<div class="small warn-text">' + U.esc(flags.join(', ')) + '</div>' : '') + '</td><td>' + U.esc(s.rekey || 'not needed') + '</td><td>' + U.esc(s.decision) + '</td></tr>';
-        }).join('') + '</tbody></table>' : '<p class="empty">No approvals made in this browser yet. Approve or escalate a payment on the payment desk and it appears here.</p>') + '</div>' +
+        }).join('') + '</tbody></table></div>' : '<p class="empty">No approvals made in this browser yet. Approve or escalate a payment on the payment desk and it appears here.</p>') + '</div>' +
       '<div class="card"><div class="card-head"><h2>Second-line decisions</h2><span class="muted small">Watching the watchers</span></div>' +
       '<div class="kv-grid one">' +
-      kv('Tier 3 holds decided', String(desk.n)) + kv('Released with a reason', String(desk.released)) + kv('Rejected as real errors', String(desk.rejected)) +
+      kv('Tier 3 holds decided', String(desk.n)) + kv('Released under a risk acceptance', String(desk.released)) + kv('Rejected as real errors', String(desk.rejected)) +
       kv('Median minutes on hold', desk.medianMinutes == null ? 'n/a' : String(desk.medianMinutes)) + kv('Median seconds to decide (measured)', desk.medianDecideSec == null ? 'n/a' : String(Math.round(desk.medianDecideSec))) +
-      '</div><p class="muted small">Second-line releases are tracked too, so the hard stop does not simply move the rubber stamp to Operational Risk.</p></div>' +
+      '</div><p class="muted small">Operational Risk owns this screen, so it cannot be the only check on its own releases. These figures also go to the Board Risk Committee pack, and Internal Audit (third line) reviews every risk acceptance on the Obligations and Board screen.</p></div>' +
       '</div>' +
+      '<div class="card"><div class="card-head"><h2>Outsourced provider: makers and checkers</h2><span class="muted small">Monitoring the outsourced service at provider level (MAS Notice 658, Outsourcing Guidelines 3.1.1)</span></div>' +
+      (vendor.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Provider</th><th class="num">Payments keyed</th><th class="num">At Tier 3 when keyed</th><th class="num">Checks done</th><th class="num">Sent on although PCAP showed Tier 3</th><th class="num">Returned by the checker</th></tr></thead><tbody>' +
+        vendor.map(function (v) { return '<tr><td>' + U.esc(v.team) + '</td><td class="num">' + v.keyed + '</td><td class="num">' + v.keyedTier3 + '</td><td class="num">' + v.checked + '</td><td class="num">' + (v.sentOnTier3 ? '<strong class="warn-text">' + v.sentOnTier3 + '</strong>' : '0') + '</td><td class="num">' + v.returned + '</td></tr>'; }).join('') +
+        '</tbody></table></div>' : '<p class="empty">No outsourced keying or checks yet.</p>') +
+      '<p class="muted small">The work is outsourced, the accountability is not. In 2020 the outsourced checker passed the Revlon payment on. Here a check that sends on a payment PCAP already shows as a Tier 3 hard stop is counted for the provider as a whole and goes into the provider review in the monthly report. The bank monitors the service and the provider manages its own staff, so nothing here names a person. In this demo one maker and one checker do all the work.</p></div>' +
       '<div class="card"><div class="card-head"><h2>Individual view</h2><span class="muted small">Restricted: Tier 2 and 3 payments only</span></div>' +
       (individualOpen && isOpRisk ? individualTable(cur) : '<p>Named figures are hidden by default. ' + (isOpRisk ? 'Open them only for a control reason. The reason is written to the event log.' : 'Only Operational Risk can open this view.') + '</p>' +
         '<button class="btn" data-act="individual"' + (isOpRisk ? '' : ' disabled') + '>' + U.icon('eye') + ' Open individual view (Tier 2 and 3 only)</button>') +
@@ -134,13 +169,13 @@
       var u = store.user(id) || { name: id, team: '' };
       return { name: u.name, team: u.team, s: s };
     }).sort(function (a, b) { return b.s.score - a.s.score; });
-    return '<table class="table"><thead><tr><th>Approver</th><th>Team</th><th class="num">Tier 2 and 3 reviews</th><th class="num">Median time</th><th class="num">Fast looks</th><th class="num">Slips</th><th class="num">Score</th></tr></thead><tbody>' +
+    return '<div class="table-wrap"><table class="table"><thead><tr><th>Approver</th><th>Team</th><th class="num">Tier 2 and 3 reviews</th><th class="num">Median time</th><th class="num">Fast looks</th><th class="num">Slips</th><th class="num">Score</th></tr></thead><tbody>' +
       rows.map(function (r) { return '<tr><td>' + U.esc(r.name) + '</td><td>' + U.esc(r.team) + '</td><td class="num">' + r.s.nTier23 + '</td><td class="num">' + U.esc(U.fmtSec(r.s.medianDwellTier23Sec)) + '</td><td class="num">' + U.fmtPctPlain(r.s.fastLookShare, 0) + '</td><td class="num">' + r.s.nSlips + '</td><td class="num">' + r.s.score + ' ' + U.ragChip(r.s.rag) + '</td></tr>'; }).join('') +
-      '</tbody></table><p class="muted small">Use for coaching and control review, not automatic discipline. Opening this view was logged in M6.</p><button class="btn small" data-act="close-individual">Close individual view</button>';
+      '</tbody></table></div><p class="muted small">Use for coaching and control review, not automatic discipline. Opening this view was logged in M6.</p><button class="btn small" data-act="close-individual">Close individual view</button>';
   }
 
   function tile(label, value, sub, rag) { return PCAP.views.register.tile(label, value, sub, rag); }
   function kv(k, v) { return '<div class="kv"><span class="k">' + U.esc(k) + '</span><span class="v">' + U.esc(v) + '</span></div>'; }
 
-  views.analytics = { render: render, teamSummaries: teamSummaries, currentSamples: currentSamples };
+  views.analytics = { render: render, teamSummaries: teamSummaries, currentSamples: currentSamples, outsourcedTeams: outsourcedTeams };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

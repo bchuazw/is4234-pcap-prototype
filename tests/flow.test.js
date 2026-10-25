@@ -132,3 +132,33 @@ test('retiring WA-01 in the M1 register makes the next roll-up hit R-03', () => 
   assert.equal(ret.module, 'M1');
   assert.deepEqual(ret.obligations, ['O4', 'O6']);
 });
+
+test('an Op Risk release logs a risk acceptance for Internal Audit, and Internal Audit cannot run the controls it audits', () => {
+  const S = freshStore();
+  const E = globalThis.PCAP.engine;
+  const p = S.submitInstruction(E.REPLAY.instruction(), 'U-MK1');
+  S.checkPayment(p.id, 'U-CK1', '');
+  S.approverOpen(p.id);
+  assert.equal(S.approverRekey(p.id, 7820000, 'INTEREST').status, 'retry');
+  assert.equal(S.approverRekey(p.id, 7820000, 'INTEREST').status, 'fire');
+  S.approverEscalate(p.id, { dwellSec: 30, note: '' });
+  assert.throws(() => S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released with the maker as owner.', null, { ownerId: 'U-MK1' }), /first-line risk owner/);
+  assert.equal(S.payment(p.id).status, 'HELD', 'a failed acceptance leaves the hold in place');
+
+  S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released to show the acceptance record.', 12, { ownerId: 'U-HLO' });
+  const acc = S.payment(p.id).opRisk.acceptance;
+  assert.equal(acc.id, 'RA-0001');
+  assert.equal(acc.expires, S.today());
+  const ev = S.st().events.find((e) => e.type === 'RISK_ACCEPTED' && e.paymentId === p.id);
+  assert.ok(ev, 'risk acceptance logged');
+  assert.deepEqual(ev.obligations, ['O1', 'O2']);
+  assert.match(ev.detail, /Risk owner: Dana F\. \(first line\)/);
+  assert.equal(S.riskAcceptances().length, 1);
+  const rk = S.st().events.filter((e) => e.type === 'REKEY' && e.paymentId === p.id);
+  assert.ok(rk.every((e) => e.data.nature === 'INTEREST' && e.data.computedNature === 'PRINCIPAL_AND_INTEREST'), 're-key events keep the stated and computed payment type');
+
+  assert.throws(() => S.runReconciliation('U-IA1'), /Internal Audit/);
+  assert.throws(() => S.runRegressionTest('U-IA1'), /Internal Audit/);
+  const ret = S.st().events.find((e) => e.type === 'RETURNED');
+  assert.ok(ret && ret.data && 'stage' in ret.data, 'returns record the stage, for the outsourced provider view');
+});

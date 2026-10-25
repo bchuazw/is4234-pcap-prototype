@@ -217,6 +217,60 @@ test('R-07 Active confirmation: a blind re-key mismatch is caught and a second m
   assert.equal(E.withRekey(ev, slip).tier, 2);
 });
 
+test('R-07 Active confirmation also checks the payment type: the right amount called interest only still fails when principal leaves', () => {
+  const c = ctx();
+  const roll = E.evaluate(rollUp(), c);
+  assert.equal(E.natureOf(roll.consequence), 'INTEREST', 'a correct roll-up only sends interest');
+  assert.equal(E.rekeyResult(roll, [{ amount: 2145000, nature: 'INTEREST' }]).status, 'pass');
+
+  const pi = E.evaluate(cleanInterest({ loanId: 'LN-1002', operation: 'PRINCIPAL_AND_INTEREST', interest: 618750, principal: 12500000 }), c);
+  const said = { amount: 13118750, nature: 'INTEREST' };
+  const first = E.rekeyResult(pi, [said]);
+  assert.equal(first.status, 'retry', 'same total, wrong type');
+  assert.equal(first.checks[0].amountMatch, true);
+  assert.equal(first.checks[0].natureMatch, false);
+  assert.match(first.message, /payment type/);
+  assert.equal(E.rekeyResult(pi, [said, said]).status, 'fire');
+  assert.equal(E.rekeyResult(pi, [said, { amount: 13118750, nature: 'PRINCIPAL_AND_INTEREST' }]).status, 'pass');
+
+  const replay = E.replayCheck(c);
+  assert.match(replay.rekey.message, /USD 7,820,000 \(interest only\) but this instruction would send USD 901,720,000 \(principal and interest\)/);
+});
+
+test('releasing a Tier 3 hold is a documented risk acceptance: reason, first-line owner, one payment, expires the same day', () => {
+  const c = ctx();
+  const ev = E.evaluate(E.REPLAY.instruction(), c);
+  const base = { paymentId: 'PAY-1', ev, category: E.ACCEPT_CATEGORIES[1], reason: 'Lender consent received for an early repayment.', ownerId: 'U-HLO', recordedById: 'U-OR1', users: c.users, businessDate: BD, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1' };
+  const ok = E.riskAcceptance(base);
+  assert.equal(ok.ok, true, ok.problems.join(' '));
+  assert.equal(ok.record.ownerId, 'U-HLO');
+  assert.equal(ok.record.recordedById, 'U-OR1');
+  assert.equal(ok.record.expires, BD, 'no standing approvals: it ends with the business day');
+  assert.match(ok.record.scope, /This payment only/);
+  assert.deepEqual(ok.record.assessed.rules.slice().sort(), ['R-01', 'R-02', 'R-04'], 'the acceptance keeps what PCAP assessed');
+
+  const bad = (over) => E.riskAcceptance(Object.assign({}, base, over));
+  assert.equal(bad({ reason: 'ok' }).ok, false);
+  assert.equal(bad({ category: 'Because I said so' }).ok, false);
+  assert.match(bad({ ownerId: 'U-OR1' }).problems.join(' '), /not a first-line risk owner/, 'Operational Risk cannot own the risk it oversees');
+  assert.match(bad({ ownerId: 'U-SUP1' }).problems.join(' '), /bank employee|first-line risk owner/, 'the outsourced provider cannot own the risk');
+  assert.match(bad({ recordedById: 'U-AP1' }).problems.join(' '), /Only Operational Risk/);
+});
+
+test('M4 privacy: every approver team in the demo has at least 3 approvers, and smaller teams get no score', () => {
+  assert.equal(E.teamReportable(2), false);
+  assert.equal(E.teamReportable(3), true);
+  for (const team of DATA.approverTeams) {
+    const n = DATA.users.filter((u) => u.team === team && u.roles.includes('approver')).length;
+    assert.ok(n >= E.DEFAULT_CONFIG.m4MinTeam, team + ' has ' + n + ' approvers');
+  }
+  const v = E.summariseOutsourced([
+    { team: 'Wipro', kind: 'keyed', tier: 3 }, { team: 'Wipro', kind: 'keyed', tier: 1 },
+    { team: 'Wipro', kind: 'checked', tier: 3 }, { team: 'Wipro', kind: 'checked', tier: 1 }, { team: 'Wipro', kind: 'returned', tier: 3 }
+  ]);
+  assert.deepEqual(v, [{ team: 'Wipro', keyed: 2, keyedTier3: 1, checked: 2, sentOnTier3: 1, returned: 1 }]);
+});
+
 test('R-08 Rubber-stamp score: fast looks and fast approvals score red, careful review scores green', () => {
   const bad = E.rubberStampScore({ fastLookShare: 1, mismatchRate: 0.1, fastApproveShare: 0.8 });
   assert.equal(bad.score, 79);

@@ -95,6 +95,23 @@
     return { id: id, label: id, noun: id };
   }
   function srOnly(text) { return '<span class="sr-only">' + esc(text) + '</span>'; }
+  /* Blind re-key attempts as text, with what the approver said the payment is. */
+  function rekeyLabels(a, asWords) {
+    if (!a || !a.attempts || !a.attempts.length) return null;
+    return a.attempts.map(function (amt, i) {
+      var n = (a.natures || [])[i];
+      if (!n) return fullAmt(amt);
+      return fullAmt(amt) + (asWords ? ' as ' + E.natureLabel(n).toLowerCase() : ' (' + E.natureLabel(n).toLowerCase() + ')');
+    });
+  }
+  function rekeyAmounts(a) { return a && a.attempts && a.attempts.length ? a.attempts.map(fullAmt) : null; }
+  /* The payment types given, once if they were all the same. */
+  function rekeyTypes(a) {
+    var n = a && a.natures ? a.natures.filter(Boolean).map(function (x) { return E.natureLabel(x); }) : [];
+    if (!n.length) return null;
+    return n.every(function (x) { return x === n[0]; }) ? [n[0]] : n;
+  }
+  function readOnlyRole(role) { return role === 'owner' || role === 'audit'; }
 
   /* ------------------------------------------------------------ demo scenarios and the maker draft */
 
@@ -307,7 +324,7 @@
         return trimDot(msg);
       case 'R-07':
         if (s === 'na') return /Tier 1/.test(msg) ? 'No blind re-key needed at Tier 1' : 'No blind re-key recorded';
-        if (s === 'pending') return 'The approver will re-key the amount blind';
+        if (s === 'pending') return 'The approver will re-key the amount and payment type blind';
         if (s === 'retry') return 'First blind re-key did not match';
         if (s === 'pass') return /second/.test(msg) ? 'Blind re-key matched on the second try' : 'Blind re-key matched';
         if (s === 'fire') return 'Blind re-key did not match twice';
@@ -412,7 +429,8 @@
   function figuresHtml(m, opts) {
     var v = variance(m);
     var rows = [];
-    if (opts.rekey && opts.rekey.length) rows.push([opts.rekeyLabel || 'Your blind re-key', opts.rekey.map(fullAmt).join(' then '), 'is-rekey']);
+    if (opts.rekey && opts.rekey.length) rows.push([opts.rekeyLabel || 'Your blind re-key', opts.rekey.join(' then '), 'is-rekey']);
+    if (opts.rekeyTypes && opts.rekeyTypes.length) rows.push(['Payment type given', opts.rekeyTypes.join(' then '), 'is-rekey']);
     rows.push(['Interest to lenders', fullAmt(m.interest), '']);
     rows.push(['Principal to lenders', fullAmt(m.principal), m.principal > 0 ? 'strong' : '']);
     if (m.kept > 0 || m.principalKeyed > 0) rows.push(['Principal kept in the bank', fullAmt(m.kept), '']);
@@ -443,7 +461,9 @@
     var tag = p && p.status === 'RELEASED' ? 'Cleared for release' : t.tag;
     var gate = m.gate && !m.gate.open
       ? '<p class="db-gate">' + U.icon('lock') + '<span>M3 gate closed: ' + esc(name(m.approverId)) + ' cannot approve this payment, so it has to be reassigned.</span></p>' : '';
-    return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(t.icon) + '<div class="db-body"><p><span class="db-tag">' + esc(tag) + '</span> <strong>' + esc(t.title) + '</strong> ' + esc(t.text) + '</p>' + gate + '</div></div>';
+    var text = t.text;
+    if (p && p.status === 'RELEASED' && p.viaOpRisk && p.opRisk && p.opRisk.acceptance) text = 'Released by Operational Risk under risk acceptance ' + p.opRisk.acceptance.id + ', owned by ' + name(p.opRisk.acceptance.ownerId) + '.';
+    return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(t.icon) + '<div class="db-body"><p><span class="db-tag">' + esc(tag) + '</span> <strong>' + esc(t.title) + '</strong> ' + esc(text) + '</p>' + gate + '</div></div>';
   }
 
   /* ------------------------------------------------------------ instruction and people */
@@ -487,11 +507,14 @@
     var evs = roundEvents(p);
     var opr = null;
     evs.forEach(function (e) { if (e.type === 'OPRISK_REJECTED' || e.type === 'OPRISK_RELEASED') opr = e; });
-    var rekeys = a && a.attempts.length ? 'Blind re-key ' + a.attempts.map(fullAmt).join(' then ') : '';
+    var rl = rekeyLabels(a);
+    var rekeys = rl ? 'Blind re-key ' + rl.join(' then ') : '';
+    var acc = p.opRisk && p.opRisk.acceptance;
     var items = personRow('Maker', p.makerId, '', p.instr.makerNote) +
       personRow('Checker', p.checkerId, '', opts.hideCheckerNote ? '' : p.checkerNote) +
       personRow('Approver', p.approverId, opts.hideRekeys ? '' : rekeys, a && a.note) +
-      (opr && p.opRisk ? personRow('Op Risk', p.opRisk.by, p.opRisk.decision === 'release' ? 'Released (' + p.opRisk.category + ')' : 'Rejected', p.opRisk.reason) : '') +
+      (opr && p.opRisk ? personRow('Op Risk', p.opRisk.by, p.opRisk.decision === 'release' ? 'Released under risk acceptance ' + (acc ? acc.id : '') + ' (' + p.opRisk.category + ')' : 'Rejected', p.opRisk.reason) : '') +
+      (acc ? personRow('Risk owner', acc.ownerId, 'Accepted the risk for this payment only, until ' + U.fmtDate(acc.expires), acc.followUp) : '') +
       (p.heldAt && p.status === 'HELD' ? '<li><span class="ppl-role">Held</span><span class="ppl-name">' + esc(U.fmtDateTime(p.heldAt)) + '</span></li>' : '');
     return '<section class="card people" aria-label="' + esc(opts.title || 'People and notes') + '"><div class="sec-head"><h3>' + esc(opts.title || 'People and notes') + '</h3></div><ul class="ppl">' + items + '</ul></section>';
   }
@@ -640,17 +663,21 @@
     var failed = checkLines(m).failed;
     var k = p.id + ':opr-reason';
     return '<section class="card action opr" aria-label="Second-line decision"><h3>Second-line decision</h3>' +
-      '<p class="hint">' + esc(name(p.approverId)) + ' (approver) sent it here ' + (mins < 1 ? 'less than a minute' : mins + ' min') + ' ago. Only you can release it, and only with a recorded reason.</p>' +
+      '<p class="hint">' + esc(name(p.approverId)) + ' (approver) sent it here ' + (mins < 1 ? 'less than a minute' : mins + ' min') + ' ago. Only you can release it, and only by recording a risk acceptance.</p>' +
       (failed.length ? '<div class="why"><p class="why-title">Why it was held</p><ul>' + failed.map(function (l) {
         return '<li>' + U.icon('x') + '<span>' + esc(l.label) + '</span><span class="chk-id">' + esc(l.k) + '</span></li>';
       }).join('') + '</ul></div>' : '') +
       '<div class="field"><label class="flabel" for="opr-reason">Reason (required, at least 15 characters)</label><textarea id="opr-reason" rows="4" data-note="' + esc(k) + '" placeholder="e.g. Principal would leave the bank on an interest-only date. Returned for FRONT and FUND.">' + esc(noteDrafts[k] || '') + '</textarea></div>' +
       '<div class="act-buttons"><button type="button" class="btn primary" data-action="opr-reject" data-id="' + p.id + '">Reject and return to maker</button></div>' +
-      '<fieldset class="release-type"><legend>To release it instead, record why</legend>' +
-      '<label class="radio"><input type="radio" name="opr-category" value="False alarm, payment is correct"><span>False alarm: the payment is correct</span></label>' +
-      '<label class="radio"><input type="radio" name="opr-category" value="Approved business exception"><span>Approved business exception</span></label></fieldset>' +
-      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="opr-release" data-id="' + p.id + '">Release with reason</button></div>' +
-      '<p class="hint">Every decision is logged with your reason, the time and the obligation it serves. M4 also tracks second-line releases.</p></section>';
+      '<fieldset class="release-type"><legend>To release it instead, record a risk acceptance</legend>' +
+      '<p class="hint">A release accepts the risk PCAP found above, so it must show the risk was assessed and why it is accepted (L5). The first line owns the risk, you challenge and record it, and Internal Audit reviews every acceptance.</p>' +
+      '<label class="radio"><input type="radio" name="opr-category" value="' + esc(E.ACCEPT_CATEGORIES[0]) + '"><span>False alarm: the payment is correct and the loan schedule is out of date</span></label>' +
+      '<label class="radio"><input type="radio" name="opr-category" value="' + esc(E.ACCEPT_CATEGORIES[1]) + '"><span>Approved business exception</span></label>' +
+      '<div class="field"><label class="flabel" for="opr-owner">Risk owner who accepts it (first line)</label><select id="opr-owner">' +
+      st().ctx.users.filter(function (u) { return u.inHouse && (u.roles || []).indexOf('owner') >= 0; }).map(function (u) { return '<option value="' + esc(u.id) + '">' + esc(u.name + ' (' + u.title.split(',')[0] + ')') + '</option>'; }).join('') + '</select></div>' +
+      '<p class="hint">Scope: this payment only. Expires at the end of today, ' + esc(U.fmtDate(store.today())) + ', so it cannot be reused for another payment.</p></fieldset>' +
+      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="opr-release" data-id="' + p.id + '">Record acceptance and release</button></div>' +
+      '<p class="hint">Every decision is logged with your reason, the time and the obligation it serves. Releases also go to the Board Risk Committee pack.</p></section>';
   }
 
   function makerReturnedPanel(p) {
@@ -697,11 +724,14 @@
     return '<section class="card rekey" aria-labelledby="rk-title">' +
       '<p class="eyebrow">Step 1 of 2: blind re-key <span class="chk-id">R-07</span></p>' +
       '<h3 class="rk-title" id="rk-title">Type the total amount this payment will send</h3>' +
-      '<p class="rk-help">Use your own source, not the instruction. The maker\'s figures, the checker\'s note and PCAP\'s statement stay hidden until you are done, so they cannot anchor your check.</p>' +
+      '<p class="rk-help">Use your own source, not the instruction, and say what the payment is. The maker\'s figures, the checker\'s note and PCAP\'s statement stay hidden until you are done, so they cannot anchor your check.</p>' +
       (retry ? '<div class="inline-alert warn" role="alert">' + U.icon('warn') + '<p><strong>That does not match what this instruction will send.</strong> Check your source and try once more. A second mismatch sends the payment to Operational Risk.</p></div>' : '') +
       '<div class="rk-form"><label class="flabel" for="rekey-input">Total leaving the bank</label><div class="rk-row">' +
       '<div class="money big"><span class="money-cur" aria-hidden="true">USD</span><input id="rekey-input" inputmode="decimal" autocomplete="off" placeholder="e.g. 7,820,000 or 7.82m" aria-describedby="rk-attempts"></div>' +
-      '<button type="button" class="btn primary" data-action="rekey" data-id="' + p.id + '">Check amount</button></div></div>' +
+      '<button type="button" class="btn primary" data-action="rekey" data-id="' + p.id + '">Check amount</button></div>' +
+      '<fieldset class="release-type rk-nature"><legend>What does your source say this payment is?</legend>' +
+      Object.keys(E.NATURES).map(function (k) { return '<label class="radio"><input type="radio" name="rk-nature" value="' + k + '"><span>' + esc(E.NATURES[k].label) + '</span></label>'; }).join('') +
+      '</fieldset></div>' +
       '<p class="rk-attempts" id="rk-attempts"><span class="rk-dots" aria-hidden="true">' + dots + '</span>Attempt ' + (used + 1) + ' of 2</p>' +
       '<details class="source"' + (retry ? ' open' : '') + '><summary>' + ico('doc') + ' Your source: agent notice to lenders (synthetic)</summary><p>' + esc(noticeText(ev)) + '</p></details>' +
       '</section>';
@@ -710,9 +740,9 @@
   function rekeyResultLine(p) {
     var a = p.approval || { attempts: [] };
     if (a.rekey === 'pass') {
-      return '<div class="inline-alert ok">' + U.icon('check') + '<p><strong>Step 1 done.</strong> Your blind re-key of ' + esc(fullAmt(a.attempts[a.attempts.length - 1])) + ' matches what PCAP computed' + (a.rekeyKind === 'slip' ? ' on the second attempt. Your first figure is logged as a slip.' : '.') + '</p></div>';
+      return '<div class="inline-alert ok">' + U.icon('check') + '<p><strong>Step 1 done.</strong> Your blind re-key of ' + esc(rekeyLabels(a, true).pop()) + ' matches what PCAP computed' + (a.rekeyKind === 'slip' ? ' on the second attempt. Your first figure is logged as a slip.' : '.') + '</p></div>';
     }
-    return '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>Your figure (' + esc(fullAmt(a.attempts[a.attempts.length - 1])) + ') did not match twice.</strong> R-07 made this payment a Tier 3 hard stop.</p></div>';
+    return '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>Your figure, ' + esc(rekeyLabels(a, true).pop()) + ', did not match twice.</strong> R-07 made this payment a Tier 3 hard stop.</p></div>';
   }
 
   /* ------------------------------------------------------------ the detail for one payment */
@@ -735,14 +765,14 @@
         m = liveModel(store.currentEval(p), p.instr);
         var a = p.approval || { attempts: [] };
         body = gateLine(m) + (ev0.tier >= 2 || a.attempts.length ? rekeyResultLine(p) : '') + decisionBanner(m) +
-          grid(consequenceCard(m, { rekey: a.attempts, eyebrow: ev0.tier >= 2 || a.attempts.length ? 'Step 2 of 2: what this payment will do' : null }), approverPanel(p, m),
+          grid(consequenceCard(m, { rekey: rekeyAmounts(a), rekeyTypes: rekeyTypes(a), eyebrow: ev0.tier >= 2 || a.attempts.length ? 'Step 2 of 2: what this payment will do' : null }), approverPanel(p, m),
             [checksCard(m), instructionCard(p.instr), peopleCard(p, { hideRekeys: true })]);
       }
     } else {
       m = modelFor(p);
       hidden = amountsHidden(p, role, m.tier);
       var a2 = p.approval && p.approval.version === p.version ? p.approval : null;
-      var rekeyFigs = { rekey: a2 ? a2.attempts : null, rekeyLabel: 'Approver\'s blind re-key' };
+      var rekeyFigs = { rekey: rekeyAmounts(a2), rekeyTypes: rekeyTypes(a2), rekeyLabel: 'Approver\'s blind re-key' };
       if (hidden) {
         body = '<div class="d-focus"><div class="inline-alert info">' + U.icon('eye') + '<p><strong>Amounts hidden.</strong> As the approver you re-key this payment blind, so its figures stay hidden until you have done that.</p></div>' + instructionCard(p.instr, { hideAmounts: true }) + '</div>';
       } else if (role === 'checker' && p.status === 'SUBMITTED') {
@@ -769,10 +799,12 @@
       checker: 'Payments appear here when the maker submits them.',
       approver: 'Payments appear here after the checker sends them on.',
       oprisk: 'Tier 3 hard stops appear here after the approver sends them.',
-      owner: 'As Head of Loan Ops you own the M1 register. Payments are read-only here.'
+      owner: 'As Head of Loan Ops you own the M1 register and the risk of a Tier 3 release. Payments are read-only here.',
+      audit: 'As Internal Audit (third line) you review payments and evidence but never act on them.'
     }[role] || '';
-    return '<section class="card empty-state">' + ico('inbox', 'es-icon') + '<h2>' + (role === 'owner' ? 'Payments are read-only for you' : 'Nothing is waiting for you') + '</h2><p>' + esc(hint) + ' Select any payment in the queue to see it.</p>' +
-      (role === 'owner' ? '<div class="es-actions"><a class="btn" href="#/register">Open the register</a></div>' : '') + '</section>';
+    var links = role === 'owner' ? '<a class="btn" href="#/register">Open the register</a>' : role === 'audit' ? '<a class="btn" href="#/oversight">Open the evidence pack and risk acceptances</a>' : '';
+    return '<section class="card empty-state">' + ico('inbox', 'es-icon') + '<h2>' + (readOnlyRole(role) ? 'Payments are read-only for you' : 'Nothing is waiting for you') + '</h2><p>' + esc(hint) + ' Select any payment in the queue to see it.</p>' +
+      (links ? '<div class="es-actions">' + links + '</div>' : '') + '</section>';
   }
 
   /* ------------------------------------------------------------ new payment flow */
@@ -949,9 +981,9 @@
     return '<aside class="card queue' + (open ? '' : ' is-collapsed') + '" aria-label="Work queue">' +
       '<div class="q-head">' + (role === 'maker' ? '<button type="button" class="btn primary block" data-action="new">' + ico('plus') + ' New payment</button>' : '') +
       '<button type="button" class="q-toggle" data-action="toggle-queue" aria-expanded="' + open + '" aria-controls="q-body"><span class="q-toggle-title">Work queue</span>' +
-      '<span class="q-toggle-meta">' + (role === 'owner' ? g.progress.length + ' in progress' : g.waiting.length + ' waiting for you') + '</span>' + ico('chev', 'q-chev') + '</button></div>' +
+      '<span class="q-toggle-meta">' + (readOnlyRole(role) ? g.progress.length + ' in progress' : g.waiting.length + ' waiting for you') + '</span>' + ico('chev', 'q-chev') + '</button></div>' +
       '<div class="q-body" id="q-body">' +
-      (role !== 'owner' ? queueGroup('Waiting for you', g.waiting, role, selId, waitEmpty) : '') +
+      (!readOnlyRole(role) ? queueGroup('Waiting for you', g.waiting, role, selId, waitEmpty) : '') +
       queueGroup('In progress', g.progress, role, selId, 'Nothing in progress.') +
       queueGroup('Done', g.done, role, selId, 'Nothing released yet.', 5) +
       '</div></aside>';
@@ -998,7 +1030,7 @@
     if (role === 'approver') return ico('user') + '<span><strong>Assigned approver</strong>. You act as whoever the maker named as approver on each payment.</span>';
     var u = userOf(store.roleUserId(role));
     if (!u) return '';
-    return ico('user') + '<span><strong>' + esc(u.name) + '</strong>, ' + esc(u.title) + ', ' + esc(u.employer) + (role === 'owner' ? '. Payments are read-only for you.' : '') + '</span>';
+    return ico('user') + '<span><strong>' + esc(u.name) + '</strong>, ' + esc(u.title) + ', ' + esc(u.employer) + (readOnlyRole(role) ? '. Payments are read-only for you.' : '') + '</span>';
   }
 
   function deskTop(role) {
@@ -1177,9 +1209,12 @@
     if (kind === 'release') {
       var cat = document.querySelector('input[name="opr-category"]:checked');
       if (!cat) { U.toast('Choose why you are releasing it: false alarm or business exception.', 'bad'); return; }
-      if (!window.confirm('Release ' + id + '? ' + fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank.')) return;
-      store.opRiskRelease(id, store.roleUserId('oprisk'), cat.value, reason, secs);
-      U.toast(id + ' released by Operational Risk. The reason is logged.', 'warn');
+      var ownerSel = document.getElementById('opr-owner');
+      if (!window.confirm('Release ' + id + '? ' + fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank under a recorded risk acceptance.')) return;
+      try {
+        store.opRiskRelease(id, store.roleUserId('oprisk'), cat.value, reason, secs, { ownerId: ownerSel ? ownerSel.value : null });
+      } catch (err) { U.toast(String(err && err.message || err), 'bad'); return; }
+      U.toast(id + ' released under risk acceptance ' + store.payment(id).opRisk.acceptance.id + '. It is logged for Internal Audit.', 'warn');
     } else {
       store.opRiskReject(id, store.roleUserId('oprisk'), reason, secs);
       U.toast(id + ' rejected and returned to the maker.', 'ok');
@@ -1317,8 +1352,15 @@
         if (input) input.focus();
         return;
       }
-      var rk = store.approverRekey(id, amt);
-      if (rk.status === 'retry') { U.toast('Your figure does not match. One more attempt.', 'warn'); focusAfter = '#rekey-input'; }
+      var nat = document.querySelector('input[name="rk-nature"]:checked');
+      if (!nat) {
+        U.toast('Say what your source says the payment is: interest only, principal and interest, or principal only.', 'bad');
+        var first = document.querySelector('input[name="rk-nature"]');
+        if (first) first.focus();
+        return;
+      }
+      var rk = store.approverRekey(id, amt, nat.value);
+      if (rk.status === 'retry') { U.toast('Your amount or payment type does not match. One more attempt.', 'warn'); focusAfter = '#rekey-input'; }
       else if (rk.status === 'pass') U.toast('Blind re-key matched.', 'ok');
       else U.toast('Second mismatch. ' + id + ' is now a Tier 3 hard stop.', 'bad');
       PCAP.app.render();

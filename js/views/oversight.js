@@ -21,7 +21,6 @@
     var health = store.controlHealth();
     var wk = weekEvents();
     var teams = PCAP.views.analytics.teamSummaries();
-    var cur = E.summariseReviews(PCAP.views.analytics.currentSamples());
     var unreg = s.payments.filter(function (p) { return p.status === 'RELEASED' && p.overrideUsedAtRelease && !p.overrideValidAtRelease; }).length;
     var escapes = {};
     s.events.filter(function (e) { return e.type === 'RECON_RUN' && e.data && e.data.escapes; }).forEach(function (e) { e.data.escapes.forEach(function (id) { escapes[id] = 1; }); });
@@ -31,12 +30,17 @@
     var realShare = rej + rel ? rej / (rej + rel) : null;
     var lapsed = health.controls.filter(function (c) { return c.id === 'CC-04'; })[0].lapsed || 0;
     var late = s.reconRuns.filter(function (r) { return r.time > E.DEFAULT_CONFIG.reconCutoff && E.daysBetween(r.date, store.today()) <= 30; }).length;
-    var worst = teams.slice().sort(function (a, b) { return b.score - a.score; })[0];
+    var worst = teams.filter(function (t) { return t.reportable; }).sort(function (a, b) { return b.score - a.score; })[0];
+    var active = s.ctx.register.filter(function (r) { return r.status === 'Active'; });
+    var legacy = active.filter(function (r) {
+      var due = r.dispensationUntil && E.daysBetween(store.today(), r.dispensationUntil) <= 30;
+      var late = r.nextReview && r.nextReview < store.today();
+      return due || late;
+    });
     var m4w = s.m4.weeks;
     var weeks = [];
     m4w.forEach(function (w) { if (weeks.indexOf(w.week) < 0) weeks.push(w.week); });
     weeks.sort();
-    var slipHist = weeks.map(function (w) { var r = m4w.filter(function (x) { return x.week === w; }); return E.mean(r.map(function (x) { return x.mismatchRate; })); });
     var worstHist = weeks.map(function (w) { return Math.max.apply(null, m4w.filter(function (x) { return x.week === w; }).map(function (x) { return x.score; })); });
     var k = s.kri;
     function rag3(v, g, a) { return v == null ? 'green' : v <= g ? 'green' : v <= a ? 'amber' : 'red'; }
@@ -45,7 +49,7 @@
       { label: 'Escapes: errors found after release', value: String(Object.keys(escapes).length), target: 'Target 0, each root-caused', rag: Object.keys(escapes).length ? 'red' : 'green', hist: k.escapes.concat([Object.keys(escapes).length]) },
       { label: 'Tier 3 holds this week', value: String(holds), target: 'Watch for spikes', rag: rag3(holds, 5, 10), hist: k.tier3Holds.concat([holds]) },
       { label: 'Share of holds that were real errors', value: realShare == null ? 'n/a' : U.fmtPctPlain(realShare, 0), target: 'Green at 50% or more', rag: realShare == null ? 'green' : realShare >= 0.5 ? 'green' : realShare >= 0.25 ? 'amber' : 'red', hist: k.holdsRealShare.concat([realShare == null ? k.holdsRealShare[k.holdsRealShare.length - 1] : realShare]), pct: true },
-      { label: 'Re-key slip rate, all teams', value: U.fmtPctPlain(cur.mismatchRate), target: 'Green under 5%', rag: cur.mismatchRate < 0.05 ? 'green' : cur.mismatchRate <= 0.10 ? 'amber' : 'red', hist: slipHist.concat([cur.mismatchRate]), pct: true },
+      { label: 'Legacy workarounds needing attention (R6 roadmap)', value: String(legacy.length) + ' of ' + active.length, target: legacy.length ? legacy.map(function (r) { return r.id; }).join(', ') + ': dispensation due or review late' : 'Each has an owner, a refresh plan and an in-date dispensation', rag: legacy.length === 0 ? 'green' : legacy.length <= 2 ? 'amber' : 'red', hist: k.legacyAttention.concat([legacy.length]) },
       { label: 'Highest team R-08 score', value: worst ? String(worst.score) : 'n/a', target: worst ? worst.team : '', rag: worst ? worst.rag : 'green', hist: worstHist.concat([worst ? worst.score : 0]) },
       { label: 'Lapsed approver certifications', value: String(lapsed), target: 'Target 0', rag: lapsed === 0 ? 'green' : lapsed <= 2 ? 'amber' : 'red', hist: k.lapsedCerts.concat([lapsed]) },
       { label: 'Late reconciliations, last 30 days', value: String(late), target: 'Target 0', rag: late === 0 ? 'green' : late === 1 ? 'amber' : 'red', hist: k.lateRecons.concat([late]) }
@@ -76,6 +80,7 @@
     var lastTest = s.regressionRuns[s.regressionRuns.length - 1];
     var tests = count(function (e) { return e.type === 'CONTROL_TEST' || e.type === 'RECON_RUN' || e.type === 'SYNTHETIC_TEST'; });
     var overdueTests = health.controls.filter(function (c) { return c.rag !== 'green'; }).length;
+    var vendorSentOn = PCAP.views.analytics.outsourcedTeams().reduce(function (n, v) { return n + v.sentOnTier3; }, 0);
     var releasedNoGate = released.filter(function (p) { return !p.viaOpRisk && !ev.some(function (e) { return e.paymentId === p.id && e.rule === 'R-05' && (e.type === 'GATE_CHECK'); }); }).length;
 
     var live = {
@@ -83,7 +88,7 @@
       O2: { text: rekeys.length + ' blind re-keys (' + slips + ' slips), ' + count(function (e) { return e.type === 'STATEMENT_SHOWN'; }) + ' consequence statements shown, ' + count(function (e) { return e.type === 'HELD'; }) + ' Tier 3 hard stops.', rag: rekeys.length && slips / rekeys.length > 0.1 ? 'amber' : 'green' },
       O3: { text: (hc['CC-04'].lapsed || 0) + ' lapsed and ' + (hc['CC-04'].expiring || 0) + ' expiring certifications. Override releases by a certified approver: ' + certOk + ' of ' + overrideRel.length + '.', rag: certOk < overrideRel.length ? 'red' : hc['CC-04'].rag },
       O4: { text: (uses.length ? Math.round((100 * mapped) / uses.length) : 100) + '% of override use mapped to a register entry (' + mapped + ' of ' + uses.length + '). Released on an unregistered override: ' + unregRel + '.', rag: unregRel ? 'red' : mapped < uses.length ? 'amber' : 'green' },
-      O5: { text: 'Override releases with an in-house approver: ' + inHouse + ' of ' + overrideRel.length + '. Owner attestations in 180 days: ' + reviews180 + '. Every register entry has a named owner.', rag: inHouse < overrideRel.length ? 'red' : hc['CC-02'].rag },
+      O5: { text: 'Override releases with an in-house approver: ' + inHouse + ' of ' + overrideRel.length + '. Owner attestations in 180 days: ' + reviews180 + '. Every register entry has a named owner. Outsourced checks sent on at Tier 3: ' + vendorSentOn + '.', rag: inHouse < overrideRel.length ? 'red' : hc['CC-02'].rag },
       O6: { text: reg.length + ' open dispensations, ' + expired + ' expired, ' + expiring + ' expiring within 30 days.', rag: expired ? 'red' : expiring ? 'amber' : 'green' },
       O7: { text: 'R-09 control health ' + health.overall + '. ' + tests + ' control tests and runs logged. Last replay test ' + (lastTest ? (lastTest.pass ? 'passed' : 'failed') + ' on ' + U.fmtDate(lastTest.date) : 'never run') + '. Controls not green: ' + overdueTests + '.', rag: health.overall }
     };
@@ -112,6 +117,7 @@
       rules: Object.keys(E.RULES).map(function (k) { var r = E.RULES[k]; return { id: r.id, name: r.name, module: r.module, logic: r.logic, action: r.action, obligations: r.obligations }; }),
       control_health: store.controlHealth(),
       kris: kris().map(function (k) { return { kri: k.label, value: k.value, target: k.target, status: k.rag }; }),
+      risk_acceptances: store.riskAcceptances().map(function (x) { var a = x.acceptance; return { id: a.id, payment_id: a.paymentId, category: a.category, reason: a.reason, risk_owner: store.userName(a.ownerId), recorded_by: store.userName(a.recordedById), accepted_on: a.acceptedOn, expires: a.expires, scope: a.scope, follow_up: a.followUp, assessed: a.assessed }; }),
       payments: s.payments.map(function (p) { return { id: p.id, loan: p.loanId, status: p.status, tier_at_submit: p.atSubmit ? p.atSubmit.tier : null, rules_at_submit: p.atSubmit ? p.atSubmit.hits : [], released_external: p.releasedExternal || null, expected_at_release: p.expectedAtRelease || null, released_by: p.releasedBy ? store.userName(p.releasedBy) : null, via_operational_risk: !!p.viaOpRisk }; }),
       events: events
     };
@@ -120,6 +126,19 @@
       return cols.map(function (c) { return U.csvCell(c === 'obligations' ? (e.obligations || []).join('|') : e[c]); }).join(',');
     }).join('\n') + '\n';
     return { json: JSON.stringify(pack, null, 2), csv: csv, count: events.length };
+  }
+
+  /* ------------------------------------------------------------ risk acceptances (third-line review) */
+  function acceptanceCard() {
+    var list = store.riskAcceptances();
+    var body = list.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Acceptance</th><th>Payment</th><th>Why</th><th>Risk owner (first line)</th><th>Recorded by (second line)</th><th>What PCAP found</th><th>Expires</th><th>Follow-up</th></tr></thead><tbody>' +
+      list.map(function (x) {
+        var a = x.acceptance, as = a.assessed || {};
+        return '<tr><td class="mono">' + U.esc(a.id) + '</td><td><a href="#" data-open-payment="' + U.esc(a.paymentId) + '">' + U.esc(a.paymentId) + '</a></td><td class="small">' + U.esc(a.category) + '. ' + U.esc(a.reason) + '</td><td>' + U.esc(store.userName(a.ownerId)) + '</td><td>' + U.esc(store.userName(a.recordedById)) + '</td><td class="small">Tier ' + U.esc(as.tier) + (as.rules && as.rules.length ? ', ' + U.esc(as.rules.join(', ')) : '') + '. ' + U.esc(U.fmtCompact(as.external)) + ' out, ' + U.esc(U.fmtCompact(as.expected)) + ' expected</td><td>' + U.esc(U.fmtDate(a.expires)) + '</td><td class="small">' + U.esc(a.followUp) + '</td></tr>';
+      }).join('') + '</tbody></table></div>'
+      : '<p class="empty">No Tier 3 payment has been released yet. If Operational Risk releases one, its risk acceptance appears here.</p>';
+    return '<div class="card"><div class="card-head"><h2>Risk acceptances for Internal Audit review</h2><span class="muted small">Every Tier 3 release, with its owner, reason, scope and expiry</span></div>' + body +
+      '<p class="muted small">L5: a risk the bank accepts must show it was assessed and why it was accepted. PCAP\'s checks are the assessment, the first-line owner accepts, Operational Risk records it, and Internal Audit reviews all of them. Each one covers a single payment and ends with the business day, so there are no standing approvals.</p></div>';
   }
 
   /* ------------------------------------------------------------ render */
@@ -157,16 +176,17 @@
       '<div class="card"><div class="card-head"><h2>Evidence events by rule</h2><span class="muted small">Passes and fires both count as evidence</span></div>' + C.hbars({ items: byRule, ariaLabel: 'Events by rule', labelWidth: 210 }) + '</div>' +
       '</div>' +
 
+      acceptanceCard() +
       '<div class="grid-2">' +
       '<div class="card export"><div class="card-head"><h2>Audit evidence pack</h2></div>' +
-      '<p>One file for Internal Audit or a regulator: the obligation map with live status, rule definitions, control health, KRIs, a payment summary and every tagged event. Internal Audit can test every payment instead of a sample.</p>' +
+      '<p>One file for Internal Audit (third line) or a regulator: the obligation map with live status, rule definitions, control health, KRIs, every risk acceptance, a payment summary and every tagged event. Internal Audit can test every payment instead of a sample.</p>' +
       '<div class="form-actions"><button class="btn primary" data-act="export">' + U.icon('download') + ' Export evidence pack</button>' +
       '<button class="btn small" data-act="export-json">JSON only</button><button class="btn small" data-act="export-csv">CSV only</button></div>' +
       '<p class="muted small">Downloads pcap-evidence-pack-' + s.businessDate + '.json and .csv. The export itself is logged.</p><pre id="export-preview" class="preview" hidden></pre></div>' +
       '<div class="card"><div class="card-head"><h2>Reporting cadence</h2></div><table class="table"><tbody>' +
       '<tr><th>Daily</th><td>Hold list, same-day reconciliation, hard-stop queue cleared, control health (M2, M5)</td></tr>' +
       '<tr><th>Monthly</th><td>Second-line control report: team rubber-stamp scores and re-key slip rates (M4), replay regression test, certification currency, register reviews due (M1, M5)</td></tr>' +
-      '<tr><th>Quarterly</th><td>Board KRI pack, threshold review against the false-alarm KRI, dispensation renewals (M6)</td></tr>' +
+      '<tr><th>Quarterly</th><td>Board KRI pack, threshold review against the false-alarm KRI, dispensation renewals and the legacy roadmap (M1, M6). Internal Audit reviews every risk acceptance and the M4 individual-view log</td></tr>' +
       '<tr><th>On request</th><td>Evidence pack for Internal Audit and regulators</td></tr></tbody></table></div>' +
       '</div>';
 
