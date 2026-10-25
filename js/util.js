@@ -158,13 +158,58 @@
     if (!host) return;
     var el = document.createElement('div');
     el.className = 'toast ' + (kind || '');
-    el.textContent = msg;
+    var text = document.createElement('span');
+    text.textContent = msg;
+    el.appendChild(text);
+    var opts = arguments[2] || {};
+    var life = opts.action ? 7000 : 3600;
+    /* An Undo (or other) action on the toast, for changes the person may not have meant to make. */
+    if (opts.action && typeof opts.onAction === 'function') {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'toast-act';
+      b.textContent = opts.action;
+      b.addEventListener('click', function () { el.remove(); opts.onAction(); });
+      el.appendChild(b);
+    }
     host.appendChild(el);
-    setTimeout(function () { el.classList.add('out'); }, 3600);
-    setTimeout(function () { el.remove(); }, 4200);
+    setTimeout(function () { el.classList.add('out'); }, life);
+    setTimeout(function () { el.remove(); }, life + 600);
+  }
+
+  /* Plain-word explanations for the terms used on screen. Shown on hover, focus or tap of a dotted term. */
+  var GLOSSARY = {
+    tier1: 'Tier 1, routine. PCAP found nothing unusual: the amount matches the loan schedule and no workaround is used. The approver reads one sentence and releases. No extra step.',
+    tier2: 'Tier 2, extra confirmation. Something is off, or a registered workaround is used. The approver re-keys the amount and the payment type from their own source, then ticks a confirmation.',
+    tier3: 'Tier 3, hard stop. The approver cannot release it. Only Operational Risk can, and only by recording a risk acceptance.',
+    wash: 'Wash account 9910: an internal Citi account. Money routed there stays inside the bank. The WA-01 workaround only keeps the principal in the bank when FRONT, FUND and PRINCIPAL all go there.',
+    legs: 'FRONT, FUND and PRINCIPAL are the three settlement legs of a loan payment in the core system. Each leg goes either to the lenders or to the wash account.',
+    rekey: 'Blind re-key: the approver types the amount and says what the payment is from their own source, before seeing the maker\'s figures or the checker\'s note. It stops one shared mistake passing three people.',
+    gate: 'Authority check (M3 gate, rules R-05 and R-06): the approver must be certified for the workaround, within their approval limit, independent of the maker and checker, and a Citi employee for override payments.',
+    acceptance: 'Risk acceptance: the record made when a Tier 3 payment is released anyway. It gives the reason and names the first-line risk owner. It covers this one payment and ends with the business day. Internal Audit reviews every one.',
+    dispensation: 'Dispensation: the date until which the bank accepts a workaround. After that date R-03 blocks any payment that uses it.',
+    override: 'Override (workaround): a manual way around a limit of the core system, such as WA-01 for interest-only payments. It can only be used if it is in the M1 register.',
+    r08: 'R-08 rubber-stamp score: a weekly team score from 0 to 100, built from fast looks, re-key slips and fast Tier 2 approvals. Team level only, teams of 3 or more. It never blocks a payment.',
+    recon: 'Same-day reconciliation: compares what left the bank today with what the loan schedules expected. A difference is called a break.',
+    kri: 'Key risk indicator (KRI): a number the Board Risk Committee watches against a threshold, with green, amber and red.',
+    evidence: 'Evidence pack: every control event with its time, person, rule and obligation row, exported as JSON and CSV for Internal Audit or a regulator.',
+    lines: 'Three lines of defence: the first line owns the risk (loan operations), the second line oversees and challenges it (Operational Risk, Compliance), the third line gives independent assurance (Internal Audit).',
+    estimate: 'Estimate: worked out from the synthetic test model or a stated assumption, not measured with real staff. Counted figures come straight from the event log.'
+  };
+  function glossary(key) {
+    if (GLOSSARY[key]) return GLOSSARY[key];
+    if (E.RULES[key]) { var r = E.RULES[key]; return r.id + ' ' + r.name + ' (' + r.module + '): ' + r.logic + ' ' + r.action; }
+    if (E.MODULES[key]) { var m = E.MODULES[key]; return m.id + ' ' + m.name + ' (' + m.group + ').'; }
+    return '';
+  }
+  /* A dotted term that explains itself. Not for use inside buttons, labels or summaries. */
+  function term(key, text, cls) {
+    return '<span class="term' + (cls ? ' ' + cls : '') + '" tabindex="0" role="button" aria-label="' + esc(text + ': what this means') + '" data-term="' + esc(key) + '">' + esc(text) + '</span>';
   }
 
   PCAP.util = {
+    glossary: glossary,
+    term: term,
     esc: esc,
     localDate: localDate,
     localTime: localTime,

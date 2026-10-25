@@ -11,16 +11,16 @@
   var STEPS = [
     { n: 1, role: 'maker', route: 'desk', preset: 'revlon', title: 'Maker keys the Revlon replay',
       text: 'The New payment form opens with the Revlon replay. Under Settlement routing only PRINCIPAL is on the wash account. Click Review payment: Tier 3, and PCAP says it will send USD 901.7M to 315 lenders, including USD 893.9M of principal, 115 times what the schedule expects. R-04, R-02 and R-01 fail. Submit it anyway, as happened in 2020.' },
-    { n: 2, role: 'checker', route: 'desk', title: 'Checker marks it checked',
-      text: 'Click Switch to Checker. The checker sees the same consequence card and checks. Add a note such as "Principal set to wash" and click Mark checked. The approver will not see this note until after the blind re-key.' },
+    { n: 2, role: 'checker', route: 'desk', title: 'Checker sends it on anyway',
+      text: 'Click Switch to Checker. The checker sees the same consequence card and the failed checks, and PCAP offers Return to maker first. To show what happened in 2020, write a note such as "Principal set to wash" and click Send to approver anyway (a note is needed only at Tier 3). The approver will not see this note until after the blind re-key.' },
     { n: 3, role: 'approver', route: 'desk', title: 'Approver re-keys blind, then reads the consequence',
       text: 'Click Switch to Approver. The amounts are hidden. Open your source (the agent notice), type 7,820,000, pick Interest only and click Check amount. It does not match, so do it again. R-07 escalates, the consequence card appears, and the payment is a Tier 3 hard stop. Send it to Operational Risk.' },
     { n: 4, role: 'oprisk', route: 'desk', title: 'Operational Risk decides, with a reason',
-      text: 'Click Switch to Op Risk. Only the second line can release a Tier 3 payment, and only by recording a risk acceptance with a reason, the first-line risk owner and an expiry. Write a reason and click Reject and return to maker. (If you release it instead, M5 catches it as a reconciliation break.) Every step is now in the event log.' },
+      text: 'Click Switch to Op Risk. Only the second line can release a Tier 3 payment, and only by recording a risk acceptance with a reason, the first-line risk owner and an expiry (open Release it instead to see it). Write a reason and click Reject and return to maker. (If you release it instead, M5 catches it as a reconciliation break.) Every step is now in the event log.' },
     { n: 5, role: 'maker', route: 'desk', title: 'Optional: the maker fixes it',
-      text: 'The returned payment waits for the maker. Click Edit and resubmit, set FRONT and FUND to the wash account, review and resubmit. Now it is Tier 2: only USD 7.8M of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000 as Interest only, confirm and release.' },
+      text: 'The returned payment waits for the maker. Click Edit and resubmit: the form opens at Settlement routing and marks FRONT and FUND as needing the wash account. Set them, review and resubmit. Now it is Tier 2: only USD 7.8M of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000 as Interest only, tick I confirm and release.' },
     { n: 6, role: 'maker', route: 'desk', preset: 'clean', title: 'Contrast: a clean payment at Tier 1',
-      text: 'The form opens with a clean interest payment. Review, submit, check and approve. Tier 1 needs no re-key. The approver\'s real time on the consequence screen is measured for M4.' },
+      text: 'The form opens with a clean interest payment. Review, submit, check and approve. Tier 1 needs no re-key: the approver reads one sentence and presses Release (or Enter), and the next waiting payment opens by itself. The This week strip shows what PCAP added and caught.' },
     { n: 7, role: 'owner', route: 'register', title: 'M1 register',
       text: 'WA-02 review is overdue and WA-03\'s dispensation is about to expire. As Head of Loan Ops, mark WA-02 reviewed or add a new workaround.' },
     { n: 8, role: 'oprisk', route: 'analytics', title: 'M4 behaviour analytics',
@@ -82,6 +82,24 @@
     ['Board and senior management', 'Paying for the build and owning the risk acceptances.', 'About USD 894M of principal left the bank in 2020, lenders refused to return about USD 504M, and penalties for wider control failures reached USD 535.6M.', 'A build and running cost estimate'],
     ['MAS, the regulator', 'Nothing new. PCAP is evidence for rules that already exist.', 'Most obligation rows are MAS Internal Controls, Outsourcing, Notice 658 and TRM. R7 is a separate recommendation to regulators.', 'None for PCAP itself']
   ];
+
+  /* Who uses PCAP every day, what it does for them and what it costs them (usability and value review, 25 Oct 2026). */
+  var USERS = [
+    ['Maker (Wipro)', 'Says in plain words what the payment will do before the checker sees it. Fills in the next unpaid schedule line and remembers the checker and approver. Marks any workaround leg still missing.', 'One review screen per payment, about 5 s (estimate)'],
+    ['Checker (Wipro)', 'The same sentence and failed checks the approver will see. A return reason is filled in from the failed checks.', 'Nothing extra at Tier 1 and 2. A short note to send on a hard stop'],
+    ['Approver (Citi)', 'Routine payments are one sentence and one button, and the next one opens by itself. A blind re-key only when something is off.', 'About 7 s at Tier 1 and 41 s at Tiers 2 and 3, 13 s on average (model estimate)'],
+    ['Operational Risk', 'Only hard stops reach them, with why each was held and who saw it. A release is one short risk acceptance form.', 'About 10 minutes per hold, 17 holds a month in the synthetic test (estimate)'],
+    ['Head of Loan Ops', 'A list of what is due on the register with the button next to it, and the risk acceptances they own.', 'A few attestations a month'],
+    ['Internal Audit', 'Every payment\'s evidence collected as it happens. Every risk acceptance listed with a one-click review.', 'Reviewing each acceptance. Replaces about 8 hours of hand sampling a quarter (assumption)'],
+    ['Board Risk Committee', 'KRIs with red first, and what PCAP costs and buys, from the bank\'s own data.', 'Reading one page a quarter'],
+    ['Wipro service manager', 'Provider-level results for the monthly service review, with nobody named.', 'Nothing extra']
+  ];
+  function usersCard() {
+    return '<div class="card"><div class="card-head"><h2>Who uses it, and what it costs them</h2><span class="muted small">Friction only where the risk is real</span></div>' +
+      '<div class="table-wrap"><table class="table"><thead><tr><th>Who</th><th>What PCAP does for them</th><th>What it costs them</th></tr></thead><tbody>' +
+      USERS.map(function (r) { return '<tr><td><strong>' + U.esc(r[0]) + '</strong></td><td>' + U.esc(r[1]) + '</td><td class="small">' + U.esc(r[2]) + '</td></tr>'; }).join('') +
+      '</tbody></table></div><p class="muted small">Yang Lu (L1 slide 13, L3, L4 slide 17): a control that slows people down or adds work for the vendor meets resistance and gets worked around, which is how the 2020 workaround happened. Each role\'s This week strip shows these numbers from the app\'s own data. Estimates come from the synthetic test model and are marked as such.</p></div>';
+  }
 
   function linkCell(route, label) { return '<a href="#/' + route + '">' + U.esc(label) + '</a>'; }
 
@@ -153,7 +171,7 @@
       }).join('') + '</div>' +
       '<p class="flow">' + ['Instruction', 'M1 register check', 'M3 authority gate', 'M2 consequence engine', 'Tiered approval and blind re-key', 'Release or hard stop', 'Events to M4, M5, M6'].map(function (x) { return '<span>' + U.esc(x) + '</span>'; }).join(U.icon('arrow')) + '</p></div>' +
 
-      reportCard() + courseCard() + feasibilityCard() +
+      usersCard() + reportCard() + courseCard() + feasibilityCard() +
 
       '<div class="card"><div class="card-head"><h2>Control rules R-01 to R-09</h2><span class="muted small">Rule IDs, names and thresholds follow Table 6 of the report</span></div><div class="table-wrap"><table class="table rules"><thead><tr><th>Rule</th><th>Module</th><th>Logic</th><th>Action</th><th>Obligations</th><th>Where to see it</th></tr></thead><tbody>' +
       rules.map(function (r) {
@@ -166,7 +184,9 @@
 
       '<div class="card notes"><h2>Good to know</h2><ul>' +
       '<li>Before you record or present, press <strong>Reset demo data</strong> so the queue is at its starting point. If a screen ever looks wrong, Reset fixes it.</li>' +
-      '<li>No login. On the payment desk, use <strong>Acting as</strong> to switch between Maker, Checker, Approver and Op Risk. The <strong>Acting as</strong> menu at the top also has Head of Loan Ops (first-line risk owner) and Internal Audit (third line, read only). When a payment waits for another role, the desk shows a <strong>Switch to ...</strong> button.</li>' +
+      '<li>No login. On the payment desk, use <strong>Acting as</strong> to switch between Maker, Checker, Approver and Op Risk. The <strong>Acting as</strong> menu at the top also has Head of Loan Ops (first-line risk owner), Internal Audit (third line), the Board Risk Committee and Wipro\'s service manager (both read only). Each opens on its own screen, and a number on a tab shows what needs that role. When a payment waits for another role, the desk shows a <strong>Switch to ...</strong> button.</li>' +
+      '<li>Words with a dotted underline, such as ' + U.term('wash', 'wash account') + ' or ' + U.term('tier3', 'Tier 3') + ', explain themselves. Point at them, tab to them or tap them.</li>' +
+      '<li>On the payment desk, <kbd>J</kbd> and <kbd>K</kbd> move through the queue, <kbd>/</kbd> searches it, <kbd>Enter</kbd> presses the focused button and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> does the main action of your panel.</li>' +
       '<li>The <strong>Light</strong> button in the header is for projectors. The choice is remembered in this browser.</li>' +
       '<li>The evidence pack and the synthetic test results download as files (JSON and CSV) to your usual downloads folder.</li>' +
       '<li>All data is synthetic and stays in this browser (localStorage). <strong>Reset demo data</strong> restores the starting point.</li>' +

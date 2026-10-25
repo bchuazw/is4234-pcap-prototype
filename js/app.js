@@ -34,14 +34,27 @@
     else root.location.hash = '#/' + id;
   }
 
+  /* What needs the role acting now, per screen. Counts only things that role has to act on. */
+  function todoFor(role) {
+    try { return PCAP.views.value ? PCAP.views.value.todo(role) : { items: [], total: 0 }; } catch (e) { return { items: [], total: 0 }; }
+  }
+
   function renderTabs() {
     var cur = currentRoute();
+    var todo = todoFor(store.st().role);
+    var byRoute = {};
+    todo.items.forEach(function (i) { (byRoute[i.route] = byRoute[i.route] || []).push(i); });
     document.getElementById('tabs').innerHTML = ROUTES.map(function (r) {
-      var mods = r.mods.length ? ' title="' + U.esc('Modules ' + r.mods.join(' and ')) + '"' : '';
-      return '<a href="#/' + r.id + '" class="tab' + (r.id === cur ? ' active' : '') + '"' + (r.id === cur ? ' aria-current="page"' : '') + mods + '>' +
-        '<span>' + U.esc(r.label) + '</span>' + (r.mods.length ? '<span class="tab-mods" aria-hidden="true">' + U.esc(r.mods.join(' ')) + '</span>' : '') + '</a>';
+      var need = byRoute[r.id] || [];
+      var n = need.reduce(function (s, i) { return s + i.count; }, 0);
+      var tip = [r.mods.length ? 'Modules ' + r.mods.join(' and ') : ''].concat(need.map(function (i) { return 'Needs you: ' + i.text; })).filter(Boolean).join('. ');
+      return '<a href="#/' + r.id + '" class="tab' + (r.id === cur ? ' active' : '') + '"' + (r.id === cur ? ' aria-current="page"' : '') + (tip ? ' title="' + U.esc(tip) + '"' : '') + '>' +
+        '<span>' + U.esc(r.label) + '</span>' + (r.mods.length ? '<span class="tab-mods" aria-hidden="true">' + U.esc(r.mods.join(' ')) + '</span>' : '') +
+        (n ? '<span class="tab-need"><span class="sr-only">, needs you: </span>' + n + '</span>' : '') + '</a>';
     }).join('');
   }
+
+  function roleHome(role) { var r = store.roleDef(role); return (r && r.home) || 'desk'; }
 
   /* ------------------------------------------------------------ theme (dark by default, light for projectors) */
   var THEME_ICON = {
@@ -71,9 +84,12 @@
   function renderHeader() {
     var st = store.st();
     var sel = document.getElementById('role-select');
-    sel.innerHTML = DATA.roles.map(function (r) { return '<option value="' + r.id + '"' + (r.id === st.role ? ' selected' : '') + '>' + U.esc(r.label) + '</option>'; }).join('');
+    sel.innerHTML = DATA.roles.map(function (r) {
+      var n = todoFor(r.id).total;
+      return '<option value="' + r.id + '"' + (r.id === st.role ? ' selected' : '') + '>' + U.esc(r.label + (n ? ', ' + n + ' need' + (n === 1 ? 's' : '') + ' you' : '')) + '</option>';
+    }).join('');
     var u = store.user(store.roleUserId(st.role));
-    var who = st.role === 'approver' ? 'Acts as each payment\'s assigned approver' : u ? u.name + ', ' + u.title : '';
+    var who = st.role === 'approver' ? 'Acts as each payment\'s assigned approver' : st.role === 'board' ? 'Board Risk Committee, read only' : u ? u.name + ', ' + u.title : '';
     document.getElementById('persona').textContent = who;
     document.getElementById('bizdate').textContent = 'Business date ' + U.fmtDate(st.businessDate);
   }
@@ -160,6 +176,60 @@
   }
   function kv(k, v) { return '<div class="kv"><span class="k">' + U.esc(k) + '</span><span class="v">' + U.esc(v) + '</span></div>'; }
 
+  /* ------------------------------------------------------------ term explanations (hover, focus or tap a dotted term) */
+  function bindTerms() {
+    var tip = document.getElementById('term-tip');
+    if (!tip) return;
+    var current = null, pinned = false;
+    function place(el) {
+      var r = el.getBoundingClientRect();
+      var w = Math.min(340, document.documentElement.clientWidth - 24);
+      tip.style.maxWidth = w + 'px';
+      tip.hidden = false;
+      var tw = tip.offsetWidth, th = tip.offsetHeight;
+      var left = Math.max(12, Math.min(r.left, document.documentElement.clientWidth - tw - 12));
+      var top = r.bottom + 8;
+      if (top + th > root.innerHeight - 8) top = Math.max(8, r.top - th - 8);
+      tip.style.left = Math.round(left) + 'px';
+      tip.style.top = Math.round(top) + 'px';
+    }
+    function show(el) {
+      var text = U.glossary(el.getAttribute('data-term'));
+      if (!text) return;
+      if (current && current !== el) current.removeAttribute('aria-describedby');
+      current = el;
+      tip.textContent = text;
+      el.setAttribute('aria-describedby', 'term-tip');
+      place(el);
+    }
+    function hide() {
+      tip.hidden = true;
+      pinned = false;
+      if (current) current.removeAttribute('aria-describedby');
+      current = null;
+    }
+    function termOf(t) { return t && t.closest ? t.closest('[data-term]') : null; }
+    document.addEventListener('mouseover', function (e) { var t = termOf(e.target); if (t && !pinned) show(t); });
+    document.addEventListener('mouseout', function (e) { var t = termOf(e.target); if (t && !pinned && !(e.relatedTarget && t.contains(e.relatedTarget))) hide(); });
+    document.addEventListener('focusin', function (e) { var t = termOf(e.target); if (t) show(t); else if (current) hide(); });
+    document.addEventListener('click', function (e) {
+      var t = termOf(e.target);
+      if (t) { e.preventDefault(); e.stopPropagation(); if (current === t && pinned) hide(); else { show(t); pinned = true; } return; }
+      if (current) hide();
+    }, true);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && current) hide();
+      var t = termOf(e.target);
+      if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (current === t && pinned) hide(); else { show(t); pinned = true; } }
+    });
+    /* Follow the term while the page scrolls, and hide the explanation once the term has left the screen. */
+    root.addEventListener('scroll', function () {
+      if (!current) return;
+      var r = current.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > root.innerHeight) hide(); else place(current);
+    }, { passive: true });
+  }
+
   /* ------------------------------------------------------------ boot */
   function boot() {
     try {
@@ -171,7 +241,18 @@
     charts.bind();
     paintThemeButton();
     document.getElementById('theme-btn').addEventListener('click', function () { setTheme(currentTheme() === 'light' ? 'dark' : 'light'); });
-    document.getElementById('role-select').addEventListener('change', function (e) { setRole(e.target.value, currentRoute() === 'guide' ? 'desk' : null); });
+    /* Switching role opens that role's own screen (the Synthetic test and the Event log stay put, they are shared tools). */
+    document.getElementById('role-select').addEventListener('change', function (e) {
+      var role = e.target.value, here = currentRoute(), home = roleHome(role);
+      var leave = here !== 'synthetic' && here !== 'events' && here !== home;
+      setRole(role, leave ? home : null);
+    });
+    bindTerms();
+    /* Screen-level keyboard shortcuts (the payment desk uses J, K, slash and Ctrl+Enter). */
+    document.addEventListener('keydown', function (e) {
+      var v = PCAP.views[currentRoute()];
+      if (v && typeof v.onKey === 'function') { try { v.onKey(e); } catch (err) { reportError(err); } }
+    });
     document.getElementById('reset-btn').addEventListener('click', function () {
       if (root.confirm('Reset all demo data? This clears payments, events and register changes made in this browser.')) {
         store.reset();

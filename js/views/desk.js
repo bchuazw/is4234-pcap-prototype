@@ -25,6 +25,11 @@
   var oprPerf = {};      /* Operational Risk: when the hold was opened (decide time) */
   var noteDrafts = {};   /* unsent notes, kept across re-renders */
   var focusAfter = null; /* selector to focus after the next render */
+  var scrollAfter = null; /* selector to bring into view after the next render */
+  var renderedAt = 0;    /* when the detail was last drawn: a keyboard release within 600 ms is ignored (no double-Enter releases) */
+  var lastFocusKey = ''; /* the payment state the default focus was last set for, so focus is never stolen while you work */
+  var ENTER_GUARD_MS = 600;
+  var NOTE_MIN = 10;     /* a checker who sends on a Tier 3 payment says why, in at least this many characters */
 
   var ROLES = [
     { id: 'maker', label: 'Maker', noun: 'the maker' },
@@ -111,7 +116,7 @@
     if (!n.length) return null;
     return n.every(function (x) { return x === n[0]; }) ? [n[0]] : n;
   }
-  function readOnlyRole(role) { return role === 'owner' || role === 'audit'; }
+  function readOnlyRole(role) { return role === 'owner' || role === 'audit' || role === 'board' || role === 'vendor'; }
 
   /* ------------------------------------------------------------ demo scenarios and the maker draft */
 
@@ -143,6 +148,27 @@
   ];
 
   function blankDraft() { var d = PRESETS.blank(); delete d.fresh; return d; }
+
+  /* Operation that fits a schedule line: principal due means principal with interest. A workaround is never chosen for the maker. */
+  function opForLine(op, line) {
+    if (op === 'INTEREST_VIA_WASH') return op;
+    return (line.principal || 0) - (line.paidPrincipal || 0) > 0 ? 'PRINCIPAL_AND_INTEREST' : 'INTEREST';
+  }
+  function nextLine(ln) {
+    return ln.schedule.slice().sort(function (a, c) { return a.date < c.date ? -1 : 1; })
+      .filter(function (l) { return (l.paidInterest || 0) < (l.interest || 0) || (l.paidPrincipal || 0) < (l.principal || 0); })[0] || null;
+  }
+  /* "New payment" opens ready to check: the next unpaid line of the loan, and the checker and approver you used last time. */
+  function newDraft() {
+    var d = blankDraft();
+    var def = ui().makerDefaults || {};
+    if (def.checkerId && store.user(def.checkerId)) d.checkerId = def.checkerId;
+    if (def.approverId && store.user(def.approverId)) d.approverId = def.approverId;
+    var ln = store.loan(d.loanId);
+    var line = ln && nextLine(ln);
+    if (line) { d.operation = opForLine(d.operation, line); fillFromLine(d, line, ln); }
+    return d;
+  }
   function draft() {
     var u = ui();
     if (!u.makerDraft) u.makerDraft = blankDraft();
@@ -373,14 +399,24 @@
       '<div class="chk-more"><p>' + esc(l.r.message) + '</p><p class="chk-rule">' + esc(more) + '</p></div></details></li>';
   }
 
-  function checksCard(m) {
+  /* Failed checks are always shown. Checks that passed fold away behind one line, so a routine payment is one short card. */
+  function checksCard(m, opts) {
+    opts = opts || {};
     var c = checkLines(m);
     var summary = (c.fail ? c.fail + ' failed' : 'None failed') + ', ' + c.pass + ' passed' + (c.wait ? ', ' + c.wait + ' to come' : '');
+    var restCount = 0;
+    var rest = c.groups.map(function (G) {
+      var lines = G.lines.filter(function (l) { return l.r.status !== 'fire'; });
+      restCount += lines.length;
+      if (!lines.length) return '';
+      return '<div class="chk-group"><h4 class="chk-gtitle">' + esc(G.g.title) + ' <span class="chk-mod">' + G.g.mod + '</span></h4><ul class="chk-list">' + lines.map(checkLine).join('') + '</ul></div>';
+    }).join('');
+    var failed = c.failed.length ? '<ul class="chk-list chk-failed">' + c.failed.map(checkLine).join('') + '</ul>' : '';
+    var lead = c.failed.length ? '' : '<p class="chk-ok">' + U.icon('check') + '<span>PCAP checked the register, the approver\'s authority and the loan schedule. Nothing failed.</span></p>';
     return '<section class="card checks" aria-labelledby="checks-title"><div class="sec-head"><h3 id="checks-title">Checks</h3><span class="sec-meta">' + esc(summary) + '</span></div>' +
-      c.groups.map(function (G) {
-        return '<div class="chk-group"><h4 class="chk-gtitle">' + esc(G.g.title) + ' <span class="chk-mod">' + G.g.mod + '</span></h4><ul class="chk-list">' +
-          G.lines.map(checkLine).join('') + '</ul></div>';
-      }).join('') + '<p class="chk-foot">Select a check to see the full rule result.</p></section>';
+      failed + lead +
+      (rest ? '<details class="chk-rest"' + (opts.open ? ' open' : '') + '><summary>' + esc(c.failed.length ? 'Show the other ' + restCount + ' checks' : 'Show all ' + restCount + ' checks') + ico('chev', 'fold-chev') + '</summary>' +
+        rest + '<p class="chk-foot">Select a check to see the full rule result.</p></details>' : '') + '</section>';
   }
 
   /* ------------------------------------------------------------ the consequence card */
@@ -437,9 +473,11 @@
     rows.push(['Total leaving the bank', fullAmt(m.total), 'total']);
     rows.push(['Loan schedule expects, ' + U.fmtDate(m.date), fullAmt(m.expected), '']);
     rows.push(['Difference', (v.diff > 0 ? '+' : '') + fullAmt(v.diff), Math.abs(v.diff) < 0.005 ? 'ok' : v.fire ? 'bad' : '']);
-    return '<div class="cq-figs"><h4>Full figures</h4><table class="figs"><tbody>' + rows.map(function (r) {
+    /* Open at Tier 3, where the numbers are the decision. Folded otherwise: the sentence and the bars say it. */
+    var open = opts.figsOpen != null ? opts.figsOpen : m.tier === 3;
+    return '<details class="cq-figs"' + (open ? ' open' : '') + '><summary><h4>Full figures</h4><span class="cq-figs-meta">' + esc(fullAmt(m.total) + ' out, ' + fullAmt(m.expected) + ' expected') + '</span>' + ico('chev', 'fold-chev') + '</summary><table class="figs"><tbody>' + rows.map(function (r) {
       return '<tr' + (r[2] ? ' class="' + r[2] + '"' : '') + '><th scope="row">' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>';
-    }).join('') + '</tbody></table></div>';
+    }).join('') + '</tbody></table></details>';
   }
 
   function consequenceCard(m, opts) {
@@ -463,7 +501,13 @@
       ? '<p class="db-gate">' + U.icon('lock') + '<span>M3 gate closed: ' + esc(name(m.approverId)) + ' cannot approve this payment, so it has to be reassigned.</span></p>' : '';
     var text = t.text;
     if (p && p.status === 'RELEASED' && p.viaOpRisk && p.opRisk && p.opRisk.acceptance) text = 'Released by Operational Risk under risk acceptance ' + p.opRisk.acceptance.id + ', owned by ' + name(p.opRisk.acceptance.ownerId) + '.';
-    return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(t.icon) + '<div class="db-body"><p><span class="db-tag">' + esc(tag) + '</span> <strong>' + esc(t.title) + '</strong> ' + esc(text) + '</p>' + gate + '</div></div>';
+    return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(t.icon) + '<div class="db-body"><p><span class="db-tag">' + esc(tag) + '</span> <strong>' + U.term('tier' + m.tier, t.title, 'on-banner') + '</strong> ' + esc(text) + '</p>' + gate + '</div></div>';
+  }
+
+  /* A card that folds away: the summary line says what is inside, so most people never need to open it. */
+  function fold(cls, title, meta, body, open) {
+    return '<details class="card fold ' + cls + '"' + (open ? ' open' : '') + '><summary class="fold-sum"><h3>' + esc(title) + '</h3><span class="fold-meta">' + esc(meta) + '</span>' + ico('chev', 'fold-chev') + '</summary>' +
+      '<div class="fold-body">' + body + '</div></details>';
   }
 
   /* ------------------------------------------------------------ instruction and people */
@@ -481,6 +525,14 @@
     opts = opts || {};
     var ln = loanOf(instr.loanId);
     var amt = function (v) { return opts.hideAmounts ? '<span class="muted">Hidden until your blind re-key</span>' : esc(fullAmt(v)); };
+    if (opts.fold) {
+      var wash = E.OVERRIDE_FIELDS.filter(function (f) { return instr.fields[f] === E.WASH; });
+      var meta = ln.id + ', ' + opShort(instr.operation).toLowerCase() + ', ' + (wash.length ? listAnd(wash) + ' to the wash account' : 'all legs to the lenders');
+      return fold('instr', 'Instruction', meta, '<p class="sec-meta">As keyed in the core loan system</p><dl class="kv2">' +
+        kv('Loan', esc(ln.id + ' ' + ln.name)) + kv('Operation', esc(opLabel(instr.operation))) + kv('Value date', esc(U.fmtDate(instr.valueDate))) +
+        kv('Override code', esc(instr.overrideCode || 'None')) + kv('Interest', amt(instr.interest), 'num') + kv('Principal', amt(instr.principal), 'num') +
+        '</dl>' + routingView(instr.fields), opts.open);
+    }
     return '<section class="card instr" aria-labelledby="instr-title"><div class="sec-head"><h3 id="instr-title">Instruction</h3>' +
       (opts.edit ? '<button type="button" class="btn link small" data-action="flow-step" data-step="1">Edit instruction</button>' : '<span class="sec-meta">As keyed in the core loan system</span>') + '</div>' +
       '<dl class="kv2">' +
@@ -516,6 +568,11 @@
       (opr && p.opRisk ? personRow('Op Risk', p.opRisk.by, p.opRisk.decision === 'release' ? 'Released under risk acceptance ' + (acc ? acc.id : '') + ' (' + p.opRisk.category + ')' : 'Rejected', p.opRisk.reason) : '') +
       (acc ? personRow('Risk owner', acc.ownerId, 'Accepted the risk for this payment only, until ' + U.fmtDate(acc.expires), acc.followUp) : '') +
       (p.heldAt && p.status === 'HELD' ? '<li><span class="ppl-role">Held</span><span class="ppl-name">' + esc(U.fmtDateTime(p.heldAt)) + '</span></li>' : '');
+    if (opts.fold) {
+      var notes = [p.instr.makerNote, opts.hideCheckerNote ? '' : p.checkerNote, a && a.note].filter(Boolean).length;
+      var meta = [name(p.makerId), name(p.checkerId), name(p.approverId)].join(', ') + (notes ? '. ' + notes + ' note' + (notes === 1 ? '' : 's') : '');
+      return fold('people', opts.title || 'People and notes', meta, '<ul class="ppl">' + items + '</ul>', opts.open);
+    }
     return '<section class="card people" aria-label="' + esc(opts.title || 'People and notes') + '"><div class="sec-head"><h3>' + esc(opts.title || 'People and notes') + '</h3></div><ul class="ppl">' + items + '</ul></section>';
   }
 
@@ -570,7 +627,13 @@
       var cur = s.state === 'current' || s.state === 'now-ret';
       return '<li class="stp is-' + s.state + '"' + (cur ? ' aria-current="step"' : '') + '><span class="stp-dot">' + icon + '</span>' +
         '<span class="stp-text"><span class="stp-label">' + srOnly(STEP_SR[s.state] + ': ') + esc(s.label) + '</span><span class="stp-meta">' + esc(s.meta || '') + '</span></span></li>';
-    }).join('') + '</ol>';
+    }).join('') + '</ol>' + stepNow(steps);
+  }
+  /* Phones show the track as dots only, plus this one line for where the payment is now. */
+  function stepNow(steps) {
+    var now = steps.filter(function (s) { return s.state === 'current' || s.state === 'now-ret' || s.state === 'released' || s.state === 'stopped'; })[0];
+    if (!now) return '';
+    return '<p class="stp-now" aria-hidden="true"><strong>' + esc(now.label) + '</strong> ' + esc(now.meta || '') + '</p>';
   }
 
   /* Who acts next, as a call to action under the stepper. Empty when it is the current role's turn. */
@@ -605,8 +668,9 @@
   }
 
   /* Main column cards plus a right rail. Narrow screens stack them with the rail after the first card. */
-  function grid(first, rail, rest) {
-    return '<div class="d-grid" style="--rows:' + (1 + rest.length) + '">' + first + '<aside class="d-rail">' + rail + '</aside>' + rest.join('') + '</div>';
+  /* lead: the banner and alerts that belong above the first card, kept in the main column so the decision panel starts level with them. */
+  function grid(lead, first, rail, rest) {
+    return '<div class="d-grid" style="--rows:' + (1 + rest.length) + '"><div class="d-lead">' + lead + first + '</div><aside class="d-rail">' + rail + '</aside>' + rest.join('') + '</div>';
   }
 
   /* ------------------------------------------------------------ role panels (right rail) */
@@ -616,77 +680,144 @@
     return '<div class="field"><label class="flabel" for="' + id + '">' + esc(label) + '</label><textarea id="' + id + '" rows="' + (rows || 3) + '" data-note="' + esc(k) + '" placeholder="' + esc(placeholder) + '">' + esc(noteDrafts[k] || '') + '</textarea></div>';
   }
 
-  function returnPanel(p, stage) {
-    var def = stage === 'approver' ? 'Amounts do not match my source.' : 'Please correct the instruction.';
+  /* A message under a field that says what is wrong and how to fix it. Filled in by the action that checks it. */
+  function fieldError(id) { return '<p class="ferr" id="' + id + '" role="alert" hidden></p>'; }
+  function showError(id, text, focusSel) {
+    var e = document.getElementById(id);
+    if (e) { e.textContent = text; e.hidden = false; }
+    else U.toast(text, 'bad');
+    var f = focusSel && document.querySelector(focusSel);
+    if (f) { try { f.focus({ preventScroll: false }); } catch (x) { f.focus(); } }
+  }
+  function failedText(m) {
+    var f = checkLines(m).failed;
+    return f.length ? 'PCAP checks failed: ' + f.map(function (l) { return l.label + ' (' + l.k + ')'; }).join('. ') + '. Please fix and resubmit.' : '';
+  }
+
+  function returnPanel(p, stage, m) {
+    var fromChecks = m && m.tier === 3 ? failedText(m) : '';
+    var def = fromChecks || (stage === 'approver' ? 'Amounts do not match my source.' : 'Please correct the instruction.');
     var k = p.id + ':return-reason';
     if (noteDrafts[k] == null) noteDrafts[k] = def;
     return '<section class="card action" aria-label="Return to maker"><h3>Return ' + esc(p.id) + ' to the maker</h3>' +
-      '<p class="hint">The maker sees your reason and can fix and resubmit the payment.</p>' +
-      noteField(p.id, 'return-reason', 'Reason', '') +
-      '<div class="act-buttons"><button type="button" class="btn primary" data-action="return" data-id="' + p.id + '" data-stage="' + stage + '">Return to maker</button>' +
+      '<p class="hint">The maker sees your reason and can fix and resubmit the payment.' + (fromChecks ? ' PCAP has filled in what failed. Edit it if you need to.' : '') + '</p>' +
+      noteField(p.id, 'return-reason', 'Reason', '') + fieldError('return-err') +
+      '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="return" data-id="' + p.id + '" data-stage="' + stage + '">Return to maker</button>' +
       '<button type="button" class="btn ghost" data-action="return-cancel">Cancel</button></div></section>';
   }
 
-  function checkerPanel(p) {
-    if (ui().deskReturn === p.id) return returnPanel(p, 'checker');
+  function checkerPanel(p, m) {
+    if (ui().deskReturn === p.id) return returnPanel(p, 'checker', m);
+    var c = checkLines(m);
+    if (m.tier === 3) {
+      /* The 2020 pattern: the outsourced checker passed on what the consequence card now shows as a hard stop. Returning is the easy path. */
+      return '<section class="card action is-t3" aria-label="Your check"><h3>Your check</h3>' +
+        '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>PCAP shows a hard stop: ' + c.fail + ' check' + (c.fail === 1 ? '' : 's') + ' failed.</strong> Return it so the maker can fix it. Only send it on if you are sure, and say why.</p></div>' +
+        '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="return-open" data-id="' + p.id + '">Return to maker</button></div>' +
+        '<div class="send-on">' + noteField(p.id, 'checker-note', 'Why send it on? (note to the approver, needed at Tier 3)', 'e.g. Principal set to wash. Interest only to lenders.') + fieldError('check-err') +
+        '<p class="hint with-icon">' + U.icon('eye') + '<span>The approver sees this note only after their blind re-key. A check that sends on a hard stop is counted for the provider as a whole in the monthly review, never by name.</span></p>' +
+        '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="check" data-id="' + p.id + '">Send to approver anyway</button></div></div></section>';
+    }
     return '<section class="card action" aria-label="Your check"><h3>Your check</h3>' +
-      '<p class="hint">Compare the instruction with its source. You see the same consequence the approver will see.</p>' +
-      noteField(p.id, 'checker-note', 'Note to the approver', 'e.g. Principal set to wash. Interest only to lenders.') +
+      '<p class="hint">' + (c.fail ? 'PCAP flagged ' + c.fail + ' check' + (c.fail === 1 ? '' : 's') + ' (left). Compare the instruction with its source before you send it on.' : 'PCAP found nothing unusual. Compare the instruction with its source, then send it on.') + '</p>' +
+      noteField(p.id, 'checker-note', 'Note to the approver (optional)', 'e.g. Principal set to wash. Interest only to lenders.', 2) +
       '<p class="hint with-icon">' + U.icon('eye') + '<span>The approver sees this note only after their blind re-key, so it cannot anchor their check.</span></p>' +
-      '<div class="act-buttons"><button type="button" class="btn primary" data-action="check" data-id="' + p.id + '">Mark checked, send to approver</button>' +
-      '<button type="button" class="btn" data-action="return-open" data-id="' + p.id + '">Return to maker</button></div></section>';
+      '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="check" data-id="' + p.id + '">Mark checked, send to approver</button>' +
+      '<button type="button" class="btn" data-action="return-open" data-id="' + p.id + '">Return to maker</button></div>' + kbdHint('checker') + '</section>';
+  }
+
+  function kbdHint(role) {
+    var main = role === 'approver' ? '<kbd>Enter</kbd> releases' : role === 'checker' ? '<kbd>Enter</kbd> sends it on' : '<kbd>Ctrl</kbd>+<kbd>Enter</kbd> does the main action';
+    return '<p class="kbd-hint">' + main + '. <kbd>J</kbd> and <kbd>K</kbd> move through your queue.</p>';
+  }
+
+  /* Authority check, folded into the decision panel (it used to be a full-width row above the card). */
+  function gateMini(m) {
+    var r05 = m.results['R-05'] || {};
+    var cert = /current (\S+) certification/.exec(r05.message || '');
+    return '<p class="act-who">' + U.icon('unlock') + '<span><strong>You can approve this.</strong> ' + esc(name(m.approverId)) + ': ' + (cert ? 'certified for ' + esc(cert[1]) + ', ' : '') +
+      'within your limit, independent of the maker and checker. ' + U.term('gate', 'Authority check') + ' <span class="chk-id">R-05, R-06</span></span></p>';
   }
 
   function approverPanel(p, m) {
-    if (ui().deskReturn === p.id) return returnPanel(p, 'approver');
-    var ap = userOf(p.approverId);
-    var who = '<p class="act-who">' + ico('user') + '<span>Acting as <strong>' + esc(ap ? ap.name : '') + '</strong>, the assigned approver (' + esc(ap ? ap.employer + ', ' + ap.team : '') + ').</span></p>';
+    if (ui().deskReturn === p.id) return returnPanel(p, 'approver', m);
     var ret = '<button type="button" class="btn" data-action="return-open" data-id="' + p.id + '">Return to maker</button>';
+    var to = shortAmt(m.total) + ' to ' + m.lenders + ' lender' + (m.lenders === 1 ? '' : 's');
     var body;
     if (m.tier === 3) {
       body = '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>You cannot release this payment.</strong> Send it to Operational Risk with a note, or return it to the maker.</p></div>' +
-        noteField(p.id, 'approver-note', 'Note to Operational Risk', 'e.g. Notice says USD 7.82M interest only. This would send principal out.') +
-        '<div class="act-buttons"><button type="button" class="btn danger" data-action="escalate" data-id="' + p.id + '">Send to Operational Risk</button>' + ret + '</div>';
+        noteField(p.id, 'approver-note', 'Note to Operational Risk (optional)', 'e.g. Notice says USD 7.82M interest only. This would send principal out.') +
+        '<div class="act-buttons"><button type="button" class="btn danger" data-primary data-action="escalate" data-id="' + p.id + '">Send to Operational Risk</button>' + ret + '</div>';
     } else if (m.tier === 2) {
-      body = '<label class="confirm"><input type="checkbox" id="confirm-box"><span><strong>I confirm</strong> what this payment will do. ' + heroSentence(m) + (m.kept > 0 ? ' ' + keptSentence(m) : '') + '</span></label>' +
-        '<div class="act-buttons"><button type="button" class="btn primary" data-action="approve" data-id="' + p.id + '">Approve and release</button>' + ret + '</div>';
+      body = '<label class="confirm"><input type="checkbox" id="confirm-box"><span><strong>I confirm</strong> what this payment will do. ' + heroSentence(m) + (m.kept > 0 ? ' ' + keptSentence(m) : '') + '</span></label>' + fieldError('confirm-err') +
+        '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="approve" data-id="' + p.id + '">Release ' + esc(to) + '</button>' + ret + '</div>';
     } else {
-      body = '<p class="hint">Tier 1 needs no re-key. Read what the payment will do, then release it.</p>' +
-        '<div class="act-buttons"><button type="button" class="btn primary" data-action="approve" data-id="' + p.id + '">Approve and release</button>' + ret + '</div>';
+      /* Tier 1: routine. One sentence, one button, nothing else asked. The button names what will leave the bank. */
+      body = '<p class="act-lead">' + U.icon('check') + '<span><strong>Routine.</strong> PCAP found nothing unusual. Read the sentence on the left, then release.</span></p>' +
+        '<div class="act-buttons"><button type="button" class="btn primary big" data-primary data-action="approve" data-id="' + p.id + '">Release ' + esc(to) + '</button>' + ret + '</div>' +
+        '<p class="hint">PCAP checked the amount against the loan schedule, the workaround register and your authority. It does not check the lenders\' account details.</p>' + kbdHint('approver');
     }
-    return '<section class="card action" aria-label="Your decision"><h3>Your decision</h3>' + who + body +
-      '<p class="dwell">' + ico('clock') + '<span>Time on this screen <strong id="dwell" data-id="' + p.id + '">0 s</strong>. Measured for M4 and reported at team level.</span></p></section>';
+    return '<section class="card action" aria-label="Your decision"><h3>Your decision</h3>' + gateMini(m) + body +
+      '<p class="dwell">' + ico('clock') + '<span>Time on this screen is recorded for team-level analytics (M4). It is one of three signals and never a pass mark.</span></p></section>';
   }
 
   function opRiskPanel(p, m) {
     var mins = Math.max(0, Math.round((Date.now() - new Date(p.heldAt)) / 60000));
     var failed = checkLines(m).failed;
     var k = p.id + ':opr-reason';
+    var min = E.DEFAULT_CONFIG.reasonMinChars;
+    var have = (noteDrafts[k] || '').trim().length;
+    var openRelease = ui().oprRelease === p.id;
     return '<section class="card action opr" aria-label="Second-line decision"><h3>Second-line decision</h3>' +
-      '<p class="hint">' + esc(name(p.approverId)) + ' (approver) sent it here ' + (mins < 1 ? 'less than a minute' : mins + ' min') + ' ago. Only you can release it, and only by recording a risk acceptance.</p>' +
+      '<p class="hint">' + esc(name(p.approverId)) + ' (approver) sent it here ' + (mins < 1 ? 'less than a minute' : mins + ' min') + ' ago. Reject it, or release it by recording a ' + U.term('acceptance', 'risk acceptance') + '.</p>' +
       (failed.length ? '<div class="why"><p class="why-title">Why it was held</p><ul>' + failed.map(function (l) {
-        return '<li>' + U.icon('x') + '<span>' + esc(l.label) + '</span><span class="chk-id">' + esc(l.k) + '</span></li>';
+        return '<li>' + U.icon('x') + '<span>' + esc(l.label) + '</span>' + U.term(l.k, l.k, 'chk-id') + '</li>';
       }).join('') + '</ul></div>' : '') +
-      '<div class="field"><label class="flabel" for="opr-reason">Reason (required, at least 15 characters)</label><textarea id="opr-reason" rows="4" data-note="' + esc(k) + '" placeholder="e.g. Principal would leave the bank on an interest-only date. Returned for FRONT and FUND.">' + esc(noteDrafts[k] || '') + '</textarea></div>' +
-      '<div class="act-buttons"><button type="button" class="btn primary" data-action="opr-reject" data-id="' + p.id + '">Reject and return to maker</button></div>' +
-      '<fieldset class="release-type"><legend>To release it instead, record a risk acceptance</legend>' +
+      '<div class="field"><label class="flabel" for="opr-reason">Your reason (needed for either decision)</label><textarea id="opr-reason" rows="3" data-note="' + esc(k) + '" data-min="' + min + '" aria-describedby="opr-count" placeholder="e.g. Principal would leave the bank on an interest-only date. Returned for FRONT and FUND.">' + esc(noteDrafts[k] || '') + '</textarea>' +
+      '<p class="fcount' + (have >= min ? ' is-ok' : '') + '" id="opr-count">' + esc(countText(have, min)) + '</p></div>' + fieldError('opr-err') +
+      '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="opr-reject" data-id="' + p.id + '">Reject and return to maker</button></div>' +
+      '<details class="release-path"' + (openRelease ? ' open' : '') + '><summary>Release it instead (records a risk acceptance)' + ico('chev', 'fold-chev') + '</summary>' +
+      '<fieldset class="release-type"><legend>Why release it?</legend>' +
       '<p class="hint">A release accepts the risk PCAP found above, so it must show the risk was assessed and why it is accepted (L5). The first line owns the risk, you challenge and record it, and Internal Audit reviews every acceptance.</p>' +
       '<label class="radio"><input type="radio" name="opr-category" value="' + esc(E.ACCEPT_CATEGORIES[0]) + '"><span>False alarm: the payment is correct and the loan schedule is out of date</span></label>' +
       '<label class="radio"><input type="radio" name="opr-category" value="' + esc(E.ACCEPT_CATEGORIES[1]) + '"><span>Approved business exception</span></label>' +
       '<div class="field"><label class="flabel" for="opr-owner">Risk owner who accepts it (first line)</label><select id="opr-owner">' +
       st().ctx.users.filter(function (u) { return u.inHouse && (u.roles || []).indexOf('owner') >= 0; }).map(function (u) { return '<option value="' + esc(u.id) + '">' + esc(u.name + ' (' + u.title.split(',')[0] + ')') + '</option>'; }).join('') + '</select></div>' +
       '<p class="hint">Scope: this payment only. Expires at the end of today, ' + esc(U.fmtDate(store.today())) + ', so it cannot be reused for another payment.</p></fieldset>' +
-      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="opr-release" data-id="' + p.id + '">Record acceptance and release</button></div>' +
+      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="opr-release" data-id="' + p.id + '">Record acceptance and release</button></div></details>' +
       '<p class="hint">Every decision is logged with your reason, the time and the obligation it serves. Releases also go to the Board Risk Committee pack.</p></section>';
   }
+  function countText(have, min) { return have >= min ? have + ' characters. Enough to record.' : have + ' of at least ' + min + ' characters.'; }
 
   function makerReturnedPanel(p) {
     var stage = { checker: 'the checker', approver: 'the approver', gate: 'the approver, blocked at the M3 gate', oprisk: 'Operational Risk' }[p.returnStage] || 'a reviewer';
     return '<section class="card action" aria-label="Returned to you"><h3>Returned to you</h3>' +
       '<p class="hint">' + esc(name(p.returnedBy)) + ' (' + esc(stage) + ') returned it on ' + esc(U.fmtDateTime(p.returnedAt)) + '.</p>' +
       (p.returnReason ? '<blockquote class="reason">' + esc(p.returnReason) + '</blockquote>' : '') +
-      '<div class="act-buttons"><button type="button" class="btn primary" data-action="edit" data-id="' + p.id + '">Edit and resubmit</button>' +
+      '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="edit" data-id="' + p.id + '">Edit and resubmit</button>' +
       '<button type="button" class="btn ghost" data-action="cancel" data-id="' + p.id + '">Cancel payment</button></div></section>';
+  }
+
+  /* On narrow screens the decision panel sits below the consequence card, so its main button is mirrored in a bar that stays at
+     the bottom of the screen. A button that needs inputs from the panel (a confirmation, a reason) only scrolls you to them. */
+  function actBar(p, m, role) {
+    var t = 'Tier ' + m.tier + ', ' + shortAmt(m.total);
+    function bar(text, btn) { return '<div class="act-bar t' + m.tier + '" role="region" aria-label="Main action"><span class="ab-text">' + esc(text) + '</span>' + btn + '</div>'; }
+    function go(label, cls) { return '<button type="button" class="btn ' + (cls || 'primary') + '" data-action="to-panel">' + esc(label) + ' ' + U.icon('arrow') + '</button>'; }
+    var back = '<button type="button" class="btn ghost" data-action="return-open" data-id="' + p.id + '">Return</button>';
+    if (ui().deskReturn === p.id) return bar('Returning ' + p.id + ' to the maker', go('Write the reason'));
+    if (role === 'approver' && p.status === 'CHECKED') {
+      if (m.tier === 1) return bar(t + ' to ' + m.lenders + ' lenders', back + '<button type="button" class="btn primary" data-action="approve" data-id="' + p.id + '">Release</button>');
+      if (m.tier === 2) return bar(t + '. Tick the confirmation first', go('Confirm and release'));
+      return bar(t + '. Hard stop', go('Send to Op Risk', 'danger'));
+    }
+    if (role === 'checker' && p.status === 'SUBMITTED') {
+      if (m.tier === 3) return bar(t + '. Hard stop', go('Return or send on'));
+      return bar(t + (checkLines(m).fail ? '. Flagged' : '. Nothing unusual'), back + '<button type="button" class="btn primary" data-action="check" data-id="' + p.id + '">Mark checked</button>');
+    }
+    if (role === 'oprisk' && p.status === 'HELD') return bar(t + '. Waiting for your decision', go('Decide', 'danger'));
+    if (role === 'maker' && p.status === 'RETURNED') return bar('Returned to you', '<button type="button" class="btn primary" data-action="edit" data-id="' + p.id + '">Edit and resubmit</button>');
+    return '';
   }
 
   /* ------------------------------------------------------------ approver: gate, blind re-key, reveal */
@@ -705,15 +836,15 @@
     var r05 = m.results['R-05'] || {};
     var cert = /current (\S+) certification/.exec(r05.message || '');
     var text = 'You (' + name(m.approverId) + ') can approve this payment: ' + (cert ? 'certified for ' + cert[1] + ', ' : '') + 'within your approval limit, and independent of the maker and checker.';
-    return '<div class="gate-line">' + U.icon('unlock') + '<p><strong>M3 gate open.</strong> ' + esc(text) + '</p><span class="chk-id">R-05, R-06</span></div>';
+    return '<div class="gate-line">' + U.icon('unlock') + '<p><strong>Authority check passed (M3 gate open).</strong> ' + esc(text) + '</p>' + U.term('gate', 'R-05, R-06', 'chk-id') + '</div>';
   }
 
   function gateClosedCard(p, ev) {
     var fails = ['R-05', 'R-06'].filter(function (k) { return ev.results[k].status === 'fire'; });
-    return '<section class="card gate-closed" aria-label="M3 gate closed"><div class="gc-head">' + U.icon('lock') + '<h3>M3 gate closed. ' + esc(name(p.approverId)) + ' cannot approve this payment.</h3></div>' +
+    return '<section class="card gate-closed" aria-label="M3 gate closed"><div class="gc-head">' + U.icon('lock') + '<h3>Authority check failed (M3 gate closed). ' + esc(name(p.approverId)) + ' cannot approve this payment.</h3></div>' +
       '<ul class="gc-list">' + fails.map(function (k) { return '<li><span>' + esc(ev.results[k].message) + '</span><span class="chk-id">' + k + '</span></li>'; }).join('') + '</ul>' +
       '<p class="hint">This attempt is logged as a blocked attempt (evidence for obligation rows O1, O3 and O5). Return it so the maker can route it to a certified, independent, in-house approver.</p>' +
-      '<div class="act-buttons row"><button type="button" class="btn primary" data-action="return-gate" data-id="' + p.id + '">Return to maker for reassignment</button></div></section>';
+      '<div class="act-buttons row"><button type="button" class="btn primary" data-primary data-action="return-gate" data-id="' + p.id + '">Return to maker for reassignment</button></div></section>';
   }
 
   function rekeyCard(p, ev) {
@@ -721,18 +852,20 @@
     var retry = a.rekey === 'retry';
     var used = a.attempts.length;
     var dots = [0, 1].map(function (i) { return '<span class="rk-dot' + (i < used ? ' is-miss' : '') + '"></span>'; }).join('');
+    /* Your own earlier answer for the payment type is kept for the second try. Nothing from the maker or checker is ever filled in. */
+    var lastNature = retry && a.natures ? a.natures[a.natures.length - 1] : null;
     return '<section class="card rekey" aria-labelledby="rk-title">' +
-      '<p class="eyebrow">Step 1 of 2: blind re-key <span class="chk-id">R-07</span></p>' +
+      '<p class="eyebrow">Step 1 of 2: ' + U.term('rekey', 'blind re-key') + ' <span class="chk-id">R-07</span></p>' +
       '<h3 class="rk-title" id="rk-title">Type the total amount this payment will send</h3>' +
-      '<p class="rk-help">Use your own source, not the instruction, and say what the payment is. The maker\'s figures, the checker\'s note and PCAP\'s statement stay hidden until you are done, so they cannot anchor your check.</p>' +
+      '<p class="rk-help">Use your own source (below), not the instruction, and say what the payment is. The maker\'s figures, the checker\'s note and PCAP\'s statement stay hidden until you are done. Asked only at Tier 2 and 3.</p>' +
       (retry ? '<div class="inline-alert warn" role="alert">' + U.icon('warn') + '<p><strong>That does not match what this instruction will send.</strong> Check your source and try once more. A second mismatch sends the payment to Operational Risk.</p></div>' : '') +
-      '<div class="rk-form"><label class="flabel" for="rekey-input">Total leaving the bank</label><div class="rk-row">' +
-      '<div class="money big"><span class="money-cur" aria-hidden="true">USD</span><input id="rekey-input" inputmode="decimal" autocomplete="off" placeholder="e.g. 7,820,000 or 7.82m" aria-describedby="rk-attempts"></div>' +
-      '<button type="button" class="btn primary" data-action="rekey" data-id="' + p.id + '">Check amount</button></div>' +
-      '<fieldset class="release-type rk-nature"><legend>What does your source say this payment is?</legend>' +
-      Object.keys(E.NATURES).map(function (k) { return '<label class="radio"><input type="radio" name="rk-nature" value="' + k + '"><span>' + esc(E.NATURES[k].label) + '</span></label>'; }).join('') +
-      '</fieldset></div>' +
-      '<p class="rk-attempts" id="rk-attempts"><span class="rk-dots" aria-hidden="true">' + dots + '</span>Attempt ' + (used + 1) + ' of 2</p>' +
+      '<div class="rk-form"><label class="flabel" for="rekey-input">Total leaving the bank</label>' +
+      '<div class="money big"><span class="money-cur" aria-hidden="true">USD</span><input id="rekey-input" inputmode="decimal" autocomplete="off" placeholder="e.g. 7,820,000 or 7.82m" aria-describedby="rk-attempts rk-amt-err"></div>' + fieldError('rk-amt-err') +
+      '<fieldset class="release-type rk-nature"><legend>What does your source say this payment is?</legend><div class="rk-natures">' +
+      Object.keys(E.NATURES).map(function (k) { return '<label class="radio"><input type="radio" name="rk-nature" value="' + k + '"' + (k === lastNature ? ' checked' : '') + '><span>' + esc(E.NATURES[k].label) + '</span></label>'; }).join('') +
+      '</div></fieldset>' + fieldError('rk-type-err') +
+      '<div class="rk-row"><button type="button" class="btn primary" data-primary data-action="rekey" data-id="' + p.id + '">Check amount</button>' +
+      '<p class="rk-attempts" id="rk-attempts"><span class="rk-dots" aria-hidden="true">' + dots + '</span>Attempt ' + (used + 1) + ' of 2. <kbd>Enter</kbd> checks.</p></div></div>' +
       '<details class="source"' + (retry ? ' open' : '') + '><summary>' + ico('doc') + ' Your source: agent notice to lenders (synthetic)</summary><p>' + esc(noticeText(ev)) + '</p></details>' +
       '</section>';
   }
@@ -764,9 +897,10 @@
         store.approverReveal(p.id);
         m = liveModel(store.currentEval(p), p.instr);
         var a = p.approval || { attempts: [] };
-        body = gateLine(m) + (ev0.tier >= 2 || a.attempts.length ? rekeyResultLine(p) : '') + decisionBanner(m) +
-          grid(consequenceCard(m, { rekey: rekeyAmounts(a), rekeyTypes: rekeyTypes(a), eyebrow: ev0.tier >= 2 || a.attempts.length ? 'Step 2 of 2: what this payment will do' : null }), approverPanel(p, m),
-            [checksCard(m), instructionCard(p.instr), peopleCard(p, { hideRekeys: true })]);
+        var hasNotes = !!(p.checkerNote || p.instr.makerNote);
+        body = grid((ev0.tier >= 2 || a.attempts.length ? rekeyResultLine(p) : '') + decisionBanner(m),
+          consequenceCard(m, { rekey: rekeyAmounts(a), rekeyTypes: rekeyTypes(a), eyebrow: ev0.tier >= 2 || a.attempts.length ? 'Step 2 of 2: what this payment will do' : null }), approverPanel(p, m),
+            [checksCard(m), peopleCard(p, { hideRekeys: true, fold: true, open: ev0.tier >= 2 && hasNotes }), instructionCard(p.instr, { fold: true })]) + actBar(p, m, role);
       }
     } else {
       m = modelFor(p);
@@ -776,14 +910,15 @@
       if (hidden) {
         body = '<div class="d-focus"><div class="inline-alert info">' + U.icon('eye') + '<p><strong>Amounts hidden.</strong> As the approver you re-key this payment blind, so its figures stay hidden until you have done that.</p></div>' + instructionCard(p.instr, { hideAmounts: true }) + '</div>';
       } else if (role === 'checker' && p.status === 'SUBMITTED') {
-        body = decisionBanner(m) + grid(consequenceCard(m), checkerPanel(p), [checksCard(m), instructionCard(p.instr), peopleCard(p)]);
+        /* The checker compares the instruction with its source, so the instruction stays open for them. */
+        body = grid(decisionBanner(m), consequenceCard(m), checkerPanel(p, m), [checksCard(m), instructionCard(p.instr, { fold: true, open: true }), peopleCard(p, { fold: true })]) + actBar(p, m, role);
       } else if (role === 'oprisk' && p.status === 'HELD') {
         if (!oprPerf[p.id]) oprPerf[p.id] = performance.now();
-        body = decisionBanner(m) + grid(consequenceCard(m, rekeyFigs), opRiskPanel(p, m), [checksCard(m), peopleCard(p, { title: 'Who saw it' }), instructionCard(p.instr)]);
+        body = grid(decisionBanner(m), consequenceCard(m, rekeyFigs), opRiskPanel(p, m), [peopleCard(p, { title: 'Who saw it', fold: true, open: true }), checksCard(m), instructionCard(p.instr, { fold: true })]) + actBar(p, m, role);
       } else if (role === 'maker' && p.status === 'RETURNED') {
-        body = decisionBanner(m) + grid(consequenceCard(m, rekeyFigs), makerReturnedPanel(p), [checksCard(m), instructionCard(p.instr), peopleCard(p)]);
+        body = grid(decisionBanner(m), consequenceCard(m, rekeyFigs), makerReturnedPanel(p), [checksCard(m), instructionCard(p.instr, { fold: true }), peopleCard(p, { fold: true })]) + actBar(p, m, role);
       } else {
-        body = decisionBanner(m, p) + grid(consequenceCard(m, rekeyFigs), peopleCard(p), [checksCard(m), instructionCard(p.instr)]);
+        body = grid(decisionBanner(m, p), consequenceCard(m, rekeyFigs), peopleCard(p), [checksCard(m), instructionCard(p.instr, { fold: true })]);
       }
     }
     return detailHead(p, m, role, hidden) + body;
@@ -796,13 +931,21 @@
         '<div class="es-actions"><button type="button" class="btn primary" data-action="new">' + ico('plus') + ' New payment</button>' + demoMenu('left') + '</div></section>';
     }
     var hint = {
-      checker: 'Payments appear here when the maker submits them.',
-      approver: 'Payments appear here after the checker sends them on.',
-      oprisk: 'Tier 3 hard stops appear here after the approver sends them.',
+      checker: 'You are all caught up. Payments appear here when the maker submits them.',
+      approver: 'You are all caught up. Payments appear here after the checker sends them on.',
+      oprisk: 'No Tier 3 hard stops are waiting. They appear here when an approver sends one.',
       owner: 'As Head of Loan Ops you own the M1 register and the risk of a Tier 3 release. Payments are read-only here.',
-      audit: 'As Internal Audit (third line) you review payments and evidence but never act on them.'
+      audit: 'As Internal Audit (third line) you review payments and evidence but never act on them.',
+      board: 'The Board reads results only. Payments are read-only here.',
+      vendor: 'As Wipro\'s service manager you see your team\'s results at provider level. Payments are read-only here.'
     }[role] || '';
-    var links = role === 'owner' ? '<a class="btn" href="#/register">Open the register</a>' : role === 'audit' ? '<a class="btn" href="#/oversight">Open the evidence pack and risk acceptances</a>' : '';
+    var links = {
+      owner: '<a class="btn primary" href="#/register">Open the register</a>',
+      audit: '<a class="btn primary" href="#/oversight">Review risk acceptances and export evidence</a>',
+      board: '<a class="btn primary" href="#/oversight">Open the Board view</a>',
+      vendor: '<a class="btn primary" href="#/analytics">Open the provider view</a>',
+      oprisk: '<a class="btn" href="#/monitor">Open the control monitor</a>'
+    }[role] || '';
     return '<section class="card empty-state">' + ico('inbox', 'es-icon') + '<h2>' + (readOnlyRole(role) ? 'Payments are read-only for you' : 'Nothing is waiting for you') + '</h2><p>' + esc(hint) + ' Select any payment in the queue to see it.</p>' +
       (links ? '<div class="es-actions">' + links + '</div>' : '') + '</section>';
   }
@@ -866,9 +1009,16 @@
       }).join('') + '</tbody></table></div>';
   }
 
-  function routeControl(f, value) {
+  /* Legs a registered workaround needs on the wash account that are not set yet (what R-04 will fail on). */
+  function missingLegs(d) {
+    var reg = d.overrideCode && d.overrideCode !== '__other' ? E.byId(st().ctx.register, d.overrideCode) : null;
+    if (!reg || reg.requiredValue !== 'WASH') return [];
+    return (reg.requiredFields || []).filter(function (f) { return E.OVERRIDE_FIELDS.indexOf(f) >= 0 && d.fields[f] !== E.WASH; });
+  }
+
+  function routeControl(f, value, missing) {
     var id = 'leg-' + f;
-    return '<div class="route-row"><span class="route-leg" id="' + id + '">' + f + '</span><div class="seg opts" role="radiogroup" aria-labelledby="' + id + '">' +
+    return '<div class="route-row' + (missing ? ' is-missing' : '') + '"><span class="route-leg" id="' + id + '">' + f + (missing ? '<span class="route-need">needs the wash account</span>' : '') + '</span><div class="seg opts" role="radiogroup" aria-labelledby="' + id + '">' +
       ['LENDERS', 'WASH'].map(function (v) {
         return '<label class="seg-opt' + (v === 'WASH' ? ' is-wash' : '') + '"><input type="radio" name="field-' + f + '" value="' + v + '"' + (value === v ? ' checked' : '') + '><span>' + esc(ROUTE_LABEL[v]) + '</span></label>';
       }).join('') + '</div></div>';
@@ -880,6 +1030,7 @@
     if (editing && editing.returnReason) notes += '<div class="inline-alert warn">' + ico('undo') + '<p><strong>Returned by ' + esc(name(editing.returnedBy)) + '.</strong> ' + esc(editing.returnReason) + '</p></div>';
     if (d.preset === 'revlon' && d.loanId === E.REPLAY.loan.id) notes += '<div class="inline-alert info">' + ico('flask') + '<p><strong>Demo scenario.</strong> A synthetic replay of 11 Aug 2020. About USD 7.8M of interest was meant to go out, but only PRINCIPAL is routed to the wash account.</p></div>';
     var dh = dateHint(d), ih = moneyHint(d.interest), ph = moneyHint(d.principal);
+    var miss = missingLegs(d);
     var dateVal = d.valueDateBad && d.valueDateText != null ? d.valueDateText : (d.valueDate ? U.fmtDate(d.valueDate) : '');
     return '<form class="card wiz-form" id="maker-form" autocomplete="off" novalidate>' +
       (notes ? '<div class="wiz-notes">' + notes + '</div>' : '') +
@@ -892,8 +1043,9 @@
       '<div class="field"><label class="flabel" for="f-interest">Interest</label><div class="money"><span class="money-cur" aria-hidden="true">USD</span><input id="f-interest" name="interest" inputmode="decimal" value="' + esc(d.interest) + '" placeholder="0" aria-describedby="hint-interest"></div>' + hintP('hint-interest', ih) + '</div>' +
       '<div class="field"><label class="flabel" for="f-principal">Principal</label><div class="money"><span class="money-cur" aria-hidden="true">USD</span><input id="f-principal" name="principal" inputmode="decimal" value="' + esc(d.principal) + '" placeholder="0" aria-describedby="hint-principal"></div>' + hintP('hint-principal', ph) + '</div>' +
       '</div>' + scheduleHelper(d) + '</fieldset>' +
-      '<fieldset class="fgroup"><legend class="fgroup-title">Settlement routing</legend><p class="fgroup-note">Where each leg of the payment settles. The WA-01 workaround only keeps principal in the bank when all three legs go to the wash account.</p>' +
-      '<div class="routing">' + E.OVERRIDE_FIELDS.map(function (f) { return routeControl(f, d.fields[f]); }).join('') + '</div>' +
+      '<fieldset class="fgroup" id="routing-group"><legend class="fgroup-title">Settlement routing</legend><p class="fgroup-note">Where each ' + U.term('legs', 'leg of the payment') + ' settles. The WA-01 workaround only keeps principal in the bank when all three legs go to the ' + U.term('wash', 'wash account') + '.</p>' +
+      (miss.length ? '<div class="inline-alert warn route-fix">' + U.icon('warn') + '<p><strong>' + esc(d.overrideCode) + ' needs ' + esc(listAnd(miss)) + ' on the wash account.</strong> Set ' + (miss.length === 1 ? 'it' : 'them') + ' below, or PCAP will hold the payment (R-04).</p></div>' : '') +
+      '<div class="routing">' + E.OVERRIDE_FIELDS.map(function (f) { return routeControl(f, d.fields[f], miss.indexOf(f) >= 0); }).join('') + '</div>' +
       '<div class="fgrid"><div class="field span2"><label class="flabel" for="f-override">Override (workaround) code</label><select id="f-override" name="overrideCode" data-rerender="1">' + overrideOptions(d.operation, d.overrideCode) + '</select></div>' +
       (d.overrideCode === '__other' ? '<div class="field"><label class="flabel" for="f-other">Other override code</label><input id="f-other" name="overrideOther" value="' + esc(d.overrideOther) + '" placeholder="e.g. OVR-PRIN-HOLD"></div>' : '') +
       '</div></fieldset>' +
@@ -922,7 +1074,7 @@
       '<div class="act-buttons"><button type="button" class="btn primary" data-action="submit">' + (editing ? 'Resubmit to checker' : 'Submit to checker') + '</button>' +
       '<button type="button" class="btn ghost" data-action="flow-step" data-step="1">' + ico('back') + ' Back to instruction</button></div>' +
       '<p class="hint">PCAP does not stop you submitting. It holds the payment at the release point' + (m.tier === 3 ? ', and only Operational Risk can release a Tier 3 payment.' : '.') + '</p></section>';
-    return decisionBanner(m) + grid(consequenceCard(m), rail, [checksCard(m), instructionCard(instr, { edit: true })]);
+    return grid(decisionBanner(m), consequenceCard(m), rail, [checksCard(m), instructionCard(instr, { edit: true })]);
   }
 
   function flowHtml() {
@@ -953,11 +1105,25 @@
     return g;
   }
 
+  /* Queue search and tier filter. Matching is in place, so typing never re-draws the screen. */
+  function qFilter() { var u = ui(); u.deskQ = u.deskQ || { text: '', tier: '' }; return u.deskQ; }
+  function searchText(p, f, hidden) {
+    var ln = loanOf(p.loanId);
+    return [p.id, p.loanId, ln.name, hidden ? '' : shortAmt(f.total), hidden ? '' : String(Math.round(f.total)), 'tier ' + f.tier, (STATUS[p.status] || {}).label || ''].join(' ').toLowerCase();
+  }
+  function qMatch(q, tier, text) {
+    if (q.tier && String(tier) !== q.tier) return false;
+    var words = String(q.text || '').toLowerCase().replace(/,/g, '').split(/\s+/).filter(Boolean);
+    return words.every(function (w) { return text.replace(/,/g, '').indexOf(w) >= 0; });
+  }
+
   function queueRow(p, role, selId) {
     var f = facts(p);
     var hidden = amountsHidden(p, role, f.tier);
     var on = p.id === selId;
-    return '<li><button type="button" class="q-row' + (on ? ' is-active' : '') + '" data-action="select" data-id="' + p.id + '" data-tier="' + f.tier + '"' + (on ? ' aria-current="true"' : '') + '>' +
+    var txt = searchText(p, f, hidden);
+    var show = qMatch(qFilter(), f.tier, txt);
+    return '<li' + (show ? '' : ' hidden') + ' data-q="' + esc(txt) + '" data-tier="' + f.tier + '"><button type="button" class="q-row' + (on ? ' is-active' : '') + '" data-action="select" data-id="' + p.id + '" data-tier="' + f.tier + '"' + (on ? ' aria-current="true"' : '') + '>' +
       '<span class="q-line"><span class="q-id">' + esc(p.id) + '</span>' + (hidden ? '<span class="q-amt is-hidden">Amount hidden</span>' : '<span class="q-amt">' + esc(shortAmt(f.total)) + '</span>') + '</span>' +
       '<span class="q-line"><span class="q-sub">' + tierText(f.tier) + '<span class="q-loan">' + esc(loanOf(p.loanId).name) + '</span></span>' + statusChip(p.status, true) + '</span>' +
       '</button></li>';
@@ -966,7 +1132,7 @@
   function queueGroup(title, list, role, selId, empty, limit) {
     var items = limit ? list.slice(0, limit) : list;
     return '<section class="q-group"><h3 class="q-title"><span>' + esc(title) + '</span><span class="q-count">' + list.length + '</span></h3>' +
-      (items.length ? '<ul class="q-list">' + items.map(function (p) { return queueRow(p, role, selId); }).join('') + '</ul>' : '<p class="q-empty">' + esc(empty) + '</p>') +
+      (items.length ? '<ul class="q-list">' + items.map(function (p) { return queueRow(p, role, selId); }).join('') + '</ul><p class="q-empty q-nomatch" hidden>No match. Clear the search to see all.</p>' : '<p class="q-empty">' + esc(empty) + '</p>') +
       (limit && list.length > limit ? '<button type="button" class="btn link small q-more" data-action="view" data-view="history">See all ' + list.length + ' in History</button>' : '') + '</section>';
   }
 
@@ -975,18 +1141,49 @@
     return u.deskQueueOpen != null ? !!u.deskQueueOpen : !hasDetail;
   }
 
+  function queueTools(g) {
+    var q = qFilter();
+    var waitTiers = { 1: 0, 2: 0, 3: 0 };
+    g.waiting.forEach(function (p) { waitTiers[facts(p).tier] += 1; });
+    var chips = [['', 'All'], ['1', 'Tier 1'], ['2', 'Tier 2'], ['3', 'Tier 3']].map(function (t) {
+      var on = q.tier === t[0];
+      var n = t[0] ? waitTiers[t[0]] : 0;
+      return '<button type="button" class="q-chip' + (on ? ' is-on' : '') + '" data-action="q-tier" data-tier="' + t[0] + '" aria-pressed="' + on + '">' + esc(t[1]) + (n ? ' <span class="q-chip-n">' + n + '</span>' : '') + '</button>';
+    }).join('');
+    return '<div class="q-tools"><label class="sr-only" for="q-search">Search the queue</label>' +
+      '<input type="search" id="q-search" class="q-search" value="' + esc(q.text) + '" placeholder="Search ID, loan or amount" autocomplete="off">' +
+      '<div class="q-chips" role="group" aria-label="Filter by tier">' + chips + '</div></div>';
+  }
+
   function queueHtml(role, g, selId, hasDetail) {
     var open = queueOpenNow(hasDetail);
-    var waitEmpty = { maker: 'Nothing returned to you.', checker: 'Nothing to check.', approver: 'Nothing to approve.', oprisk: 'No Tier 3 holds.' }[role] || '';
+    var waitEmpty = { maker: 'Nothing returned to you.', checker: 'Nothing to check. You are all caught up.', approver: 'Nothing to approve. You are all caught up.', oprisk: 'No Tier 3 holds waiting.' }[role] || '';
     return '<aside class="card queue' + (open ? '' : ' is-collapsed') + '" aria-label="Work queue">' +
       '<div class="q-head">' + (role === 'maker' ? '<button type="button" class="btn primary block" data-action="new">' + ico('plus') + ' New payment</button>' : '') +
       '<button type="button" class="q-toggle" data-action="toggle-queue" aria-expanded="' + open + '" aria-controls="q-body"><span class="q-toggle-title">Work queue</span>' +
       '<span class="q-toggle-meta">' + (readOnlyRole(role) ? g.progress.length + ' in progress' : g.waiting.length + ' waiting for you') + '</span>' + ico('chev', 'q-chev') + '</button></div>' +
-      '<div class="q-body" id="q-body">' +
+      '<div class="q-body" id="q-body">' + queueTools(g) +
       (!readOnlyRole(role) ? queueGroup('Waiting for you', g.waiting, role, selId, waitEmpty) : '') +
       queueGroup('In progress', g.progress, role, selId, 'Nothing in progress.') +
       queueGroup('Done', g.done, role, selId, 'Nothing released yet.', 5) +
+      '<p class="kbd-hint q-keys"><kbd>/</kbd> search. <kbd>J</kbd> and <kbd>K</kbd> next and previous.</p>' +
       '</div></aside>';
+  }
+
+  /* Apply the queue filter to the rows already on screen. */
+  function applyQueueFilter() {
+    var q = qFilter();
+    Array.prototype.forEach.call(document.querySelectorAll('.queue .q-group'), function (grp) {
+      var rows = grp.querySelectorAll('li[data-q]');
+      var shown = 0;
+      Array.prototype.forEach.call(rows, function (li) {
+        var ok = qMatch(q, li.getAttribute('data-tier'), li.getAttribute('data-q'));
+        li.hidden = !ok;
+        if (ok) shown += 1;
+      });
+      var nm = grp.querySelector('.q-nomatch');
+      if (nm) nm.hidden = !(rows.length && !shown);
+    });
   }
 
   /* ------------------------------------------------------------ history */
@@ -1086,7 +1283,7 @@
     }
     if (role !== 'maker') u.deskFlow = null;
     var view = u.deskView === 'history' ? 'history' : 'queue';
-    var html = deskTop(role) + viewTabs(view);
+    var html = deskTop(role) + '<div class="desk-bar">' + viewTabs(view) + (PCAP.views.value ? PCAP.views.value.strip(role) : '') + '</div>';
     if (view === 'history') {
       html += historyHtml(role);
     } else {
@@ -1098,12 +1295,79 @@
     }
     el.innerHTML = '<div class="desk">' + html + '</div>';
     bind(el);
-    startDwellTimer();
+    applyQueueFilter();
+    watchBar(el);
+    renderedAt = performance.now();
     if (focusAfter) {
       var t = el.querySelector(focusAfter);
       focusAfter = null;
-      if (t) { try { t.focus({ preventScroll: true }); } catch (e) { t.focus(); } }
+      if (t) { focusEl(t); if (t.id === 'q-search') { try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) { /* not a text field */ } } }
+      lastFocusKey = focusKey(role);
+    } else {
+      defaultFocus(el, role);
     }
+    if (scrollAfter) {
+      var s = el.querySelector(scrollAfter);
+      scrollAfter = null;
+      if (s) s.scrollIntoView({ block: 'center' });
+    }
+  }
+
+  function focusEl(t) { try { t.focus({ preventScroll: true }); } catch (e) { t.focus(); } }
+  function finePointer() { try { return root.matchMedia('(pointer: fine)').matches; } catch (e) { return true; } }
+  function barShown() { var b = document.querySelector('.act-bar'); return !!(b && b.offsetParent !== null && getComputedStyle(b).display !== 'none'); }
+
+  /* The state the default focus belongs to. Focus moves only when this changes, never while someone is working. */
+  function focusKey(role) {
+    var u = ui();
+    var p = u.deskSel ? store.payment(u.deskSel) : null;
+    if (!p || u.deskView === 'history' || (role === 'maker' && u.deskFlow)) return '';
+    var a = p.approval && p.approval.version === p.version ? p.approval : null;
+    return [role, p.id, p.status, p.version, a ? a.attempts.length : 0, u.deskReturn || ''].join('|');
+  }
+
+  /* Sensible default focus: the one thing this role does next on this payment. Text boxes only get focus with a mouse,
+     so a phone keyboard never pops up by itself. */
+  function defaultFocus(el, role) {
+    var key = focusKey(role);
+    if (!key || key === lastFocusKey) return;
+    lastFocusKey = key;
+    var p = store.payment(ui().deskSel);
+    if (!p || waitsFor(p) !== role) return;
+    var active = document.activeElement;
+    if (active && active !== document.body && active.closest && (active.closest('.app-header') || active.id === 'q-search')) return;
+    var detail = el.querySelector('#desk-detail');
+    if (!detail) return;
+    var fine = finePointer();
+    var pick = null;
+    if (detail.querySelector('#return-reason')) pick = fine ? '#return-reason' : null;
+    else if (detail.querySelector('#rekey-input')) pick = fine ? '#rekey-input' : null;
+    else if (detail.querySelector('#confirm-box')) pick = '#confirm-box';
+    else if (detail.querySelector('#opr-reason')) pick = fine ? '#opr-reason' : null;
+    else if (detail.querySelector('#approver-note')) pick = fine ? '#approver-note' : null;
+    else if (role === 'checker' && detail.querySelector('.action.is-t3')) pick = '.d-rail [data-primary]';
+    else if (role === 'checker' && checkLinesFor(p).fail) pick = fine ? '#checker-note' : null;
+    else {
+      var prim = detail.querySelector('.d-rail [data-primary]');
+      var r = prim && prim.getBoundingClientRect();
+      pick = (r && r.top >= 0 && r.bottom <= root.innerHeight) || !barShown() ? '.d-rail [data-primary]' : '.act-bar .btn:last-child';
+    }
+    var t = pick && detail.querySelector(pick);
+    if (t) focusEl(t);
+  }
+  function checkLinesFor(p) { return checkLines(modelFor(p)); }
+
+  /* Hide the bottom bar while the decision panel itself is on screen, so the same button is never shown twice. */
+  var barObs = null;
+  function watchBar(el) {
+    if (barObs) { barObs.disconnect(); barObs = null; }
+    var bar = el.querySelector('.act-bar');
+    var panel = el.querySelector('.d-rail .action');
+    if (!bar || !panel || typeof IntersectionObserver === 'undefined') return;
+    barObs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { bar.classList.toggle('is-near', en.isIntersecting); });
+    }, { threshold: 0.35 });
+    barObs.observe(panel);
   }
 
   function startDwellTimer() {
@@ -1159,6 +1423,20 @@
     if (dt) { if (d.valueDateBad) dt.setAttribute('aria-invalid', 'true'); else dt.removeAttribute('aria-invalid'); }
     var live = document.getElementById('wiz-live');
     if (live) live.innerHTML = liveHint(d);
+    /* Keep the "needs the wash account" markers in step with the legs as the maker sets them. */
+    var miss = missingLegs(d);
+    E.OVERRIDE_FIELDS.forEach(function (f) {
+      var leg = document.getElementById('leg-' + f);
+      var row = leg && leg.closest('.route-row');
+      if (!row) return;
+      var need = miss.indexOf(f) >= 0;
+      row.classList.toggle('is-missing', need);
+      var tag = leg.querySelector('.route-need');
+      if (need && !tag) leg.insertAdjacentHTML('beforeend', '<span class="route-need">needs the wash account</span>');
+      if (!need && tag) tag.remove();
+    });
+    var fix = document.querySelector('.route-fix');
+    if (fix && !miss.length) { fix.className = 'inline-alert ok route-fix'; fix.innerHTML = U.icon('check') + '<p><strong>All three legs are on the wash account.</strong> The principal stays inside the bank.</p>'; }
   }
 
   function validateDraft(d) {
@@ -1194,35 +1472,64 @@
     if (!ln) return;
     var line = ln.schedule.slice().sort(function (a, c) { return a.date < c.date ? -1 : 1; })
       .filter(function (l) { return (l.paidInterest || 0) < (l.interest || 0) || (l.paidPrincipal || 0) < (l.principal || 0); })[0];
-    if (line) fillFromLine(d, line, ln);
+    if (line) { d.operation = opForLine(d.operation, line); fillFromLine(d, line, ln); }
+  }
+
+  /* After a decision, open the next payment waiting for the same role (respecting the queue filter). Tier 2 and 3 payments
+     still need their re-key, confirmation or reason, so moving on never skips a control. */
+  function advance(role, doneId) {
+    var q = qFilter();
+    var next = store.waitingFor(role).filter(function (p) {
+      if (p.id === doneId) return false;
+      var f = facts(p);
+      return qMatch(q, f.tier, searchText(p, f, amountsHidden(p, role, f.tier)));
+    })[0];
+    if (next) {
+      var u = ui();
+      u.deskSel = next.id;
+      u.deskReturn = null;
+      return next;
+    }
+    return null;
+  }
+  function nextNote(next) {
+    if (!next) return ' Nothing else is waiting for you.';
+    var t = facts(next).tier;
+    return ' Next: ' + next.id + (t === 1 ? ' (Tier 1).' : t === 2 ? ' (Tier 2, re-key needed).' : ' (Tier 3).');
   }
 
   function oprDecide(id, kind) {
     var reason = (document.getElementById('opr-reason') || {}).value || '';
     var secs = oprPerf[id] ? (performance.now() - oprPerf[id]) / 1000 : null;
-    if (reason.trim().length < 15) {
-      U.toast('Record a reason of at least 15 characters.', 'bad');
-      var ta = document.getElementById('opr-reason');
-      if (ta) ta.focus();
+    var min = E.DEFAULT_CONFIG.reasonMinChars;
+    if (reason.trim().length < min) {
+      showError('opr-err', 'Write your reason above first: at least ' + min + ' characters (you have ' + reason.trim().length + '). It is logged with your decision.', '#opr-reason');
       return;
     }
+    var next = null;
     if (kind === 'release') {
       var cat = document.querySelector('input[name="opr-category"]:checked');
-      if (!cat) { U.toast('Choose why you are releasing it: false alarm or business exception.', 'bad'); return; }
+      if (!cat) { showError('opr-err', 'Choose why you are releasing it: false alarm or approved business exception.', 'input[name="opr-category"]'); return; }
       var ownerSel = document.getElementById('opr-owner');
-      if (!window.confirm('Release ' + id + '? ' + fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank under a recorded risk acceptance.')) return;
+      if (!window.confirm('Release ' + id + '? ' + fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank under a recorded risk acceptance. This cannot be undone.')) return;
       try {
         store.opRiskRelease(id, store.roleUserId('oprisk'), cat.value, reason, secs, { ownerId: ownerSel ? ownerSel.value : null });
-      } catch (err) { U.toast(String(err && err.message || err), 'bad'); return; }
-      U.toast(id + ' released under risk acceptance ' + store.payment(id).opRisk.acceptance.id + '. It is logged for Internal Audit.', 'warn');
+      } catch (err) { showError('opr-err', String(err && err.message || err)); return; }
+      next = advance('oprisk', id);
+      U.toast(id + ' released under risk acceptance ' + store.payment(id).opRisk.acceptance.id + '. It is logged for Internal Audit.' + nextNote(next), 'warn');
     } else {
       store.opRiskReject(id, store.roleUserId('oprisk'), reason, secs);
-      U.toast(id + ' rejected and returned to the maker.', 'ok');
+      next = advance('oprisk', id);
+      U.toast(id + ' rejected and returned to the maker.' + nextNote(next), 'ok');
     }
     delete noteDrafts[id + ':opr-reason'];
+    ui().oprRelease = null;
     PCAP.app.render();
     scrollToDetail();
   }
+
+  /* A keyboard press that lands right after the screen changed is ignored, so a held or double Enter cannot release a second payment. */
+  function tooSoon(e) { return !!(e && e.detail === 0 && performance.now() - renderedAt < ENTER_GUARD_MS); }
 
   var ACTIONS = {
     role: function (btn) {
@@ -1251,9 +1558,28 @@
       u.deskQueueOpen = !document.querySelector('.queue:not(.is-collapsed)');
       PCAP.app.render();
     },
+    'q-tier': function (btn) {
+      var q = qFilter();
+      q.tier = btn.getAttribute('data-tier') || '';
+      store.save();
+      Array.prototype.forEach.call(document.querySelectorAll('.q-chip'), function (c) {
+        var on = (c.getAttribute('data-tier') || '') === q.tier;
+        c.classList.toggle('is-on', on);
+        c.setAttribute('aria-pressed', String(on));
+      });
+      applyQueueFilter();
+    },
+    'to-panel': function () {
+      var panel = document.querySelector('.d-rail .action');
+      if (!panel) return;
+      panel.scrollIntoView({ block: 'start' });
+      window.scrollBy(0, -64);
+      var t = panel.querySelector('#confirm-box, #return-reason, #opr-reason, #approver-note, #checker-note, [data-primary]');
+      if (t) focusEl(t);
+    },
     'new': function () {
       var u = ui();
-      if (draft().editingId) u.makerDraft = blankDraft();
+      if (draft().editingId || !draft().interest && !draft().principal) u.makerDraft = newDraft();
       u.deskFlow = { step: 1 };
       u.deskView = 'queue';
       store.save();
@@ -1273,12 +1599,23 @@
       scrollToDetail();
     },
     preset: function (btn) {
+      var before = E.clone(draft());
       var d = PRESETS[btn.getAttribute('data-preset')]();
       delete d.fresh;
       ui().makerDraft = d;
       ui().deskFlow = { step: 1 };
       store.save();
       PCAP.app.render();
+      /* Loading a scenario replaces what was typed. Offer to put it back. */
+      if (before && (before.interest || before.principal || before.makerNote) && !before.editingId) {
+        U.toast('Form replaced with the demo scenario.', 'ok', { action: 'Undo', onAction: function () {
+          ui().makerDraft = before;
+          ui().deskFlow = { step: 1 };
+          store.save();
+          PCAP.app.render();
+          U.toast('Your earlier form is back.', 'ok');
+        } });
+      }
     },
     'use-line': function (btn) {
       var form = document.getElementById('maker-form');
@@ -1286,6 +1623,7 @@
       var ln = store.loan(d.loanId);
       var line = ln && ln.schedule.filter(function (l) { return l.date === btn.getAttribute('data-date'); })[0];
       if (!line) return;
+      d.operation = opForLine(d.operation, line);
       fillFromLine(d, line, ln);
       store.save();
       PCAP.app.render();
@@ -1297,6 +1635,8 @@
       var editing = d.editingId;
       var p = store.submitInstruction(draftToInstr(d), store.roleUserId('maker'), editing);
       var u = ui();
+      /* Remember who checks and approves, so the next payment starts with them. */
+      u.makerDefaults = { checkerId: d.checkerId, approverId: d.approverId };
       u.makerDraft = blankDraft();
       u.deskFlow = null;
       u.deskSel = p.id;
@@ -1306,11 +1646,18 @@
       PCAP.app.render();
       scrollToDetail();
     },
-    check: function (btn, id) {
-      var note = (document.getElementById('checker-note') || {}).value || '';
-      store.checkPayment(id, store.payment(id).checkerId, note.trim());
+    check: function (btn, id, e) {
+      if (tooSoon(e)) return;
+      var p = store.payment(id);
+      var note = ((document.getElementById('checker-note') || {}).value || '').trim();
+      if (store.currentEval(p).tier === 3 && note.length < NOTE_MIN) {
+        showError('check-err', 'PCAP shows a hard stop. To send it on anyway, say why in the note (at least ' + NOTE_MIN + ' characters), or return it to the maker.', '#checker-note');
+        return;
+      }
+      store.checkPayment(id, p.checkerId, note);
       delete noteDrafts[id + ':checker-note'];
-      U.toast(id + ' checked and sent to the approver.', 'ok');
+      var next = advance('checker', id);
+      U.toast(id + ' checked and sent to the approver.' + nextNote(next), 'ok');
       PCAP.app.render();
       scrollToDetail();
     },
@@ -1318,6 +1665,8 @@
       ui().deskReturn = id;
       focusAfter = '#return-reason';
       PCAP.app.render();
+      var r = document.getElementById('return-reason');
+      if (r && (barShown() || !finePointer())) r.scrollIntoView({ block: 'center' });
     },
     'return-cancel': function () {
       ui().deskReturn = null;
@@ -1327,11 +1676,12 @@
       var stage = btn.getAttribute('data-stage');
       var p = store.payment(id);
       var reason = ((document.getElementById('return-reason') || {}).value || '').trim();
-      if (!reason) { U.toast('Write a reason for the maker first.', 'bad'); return; }
+      if (!reason) { showError('return-err', 'Write a reason so the maker knows what to fix.', '#return-reason'); return; }
       store.returnToMaker(id, stage === 'checker' ? p.checkerId : p.approverId, reason, stage);
       ui().deskReturn = null;
       delete noteDrafts[id + ':return-reason'];
-      U.toast(id + ' returned to the maker.', 'warn');
+      var next = advance(stage === 'checker' ? 'checker' : 'approver', id);
+      U.toast(id + ' returned to the maker.' + nextNote(next), 'warn');
       PCAP.app.render();
       scrollToDetail();
     },
@@ -1340,7 +1690,8 @@
       var ev = store.currentEval(p);
       var reason = 'M3 gate: ' + (ev.results['R-05'].status === 'fire' ? ev.results['R-05'].message : ev.results['R-06'].message) + ' Please reassign.';
       store.returnToMaker(id, p.approverId, reason, 'gate');
-      U.toast(id + ' returned to the maker for reassignment.', 'warn');
+      var next = advance('approver', id);
+      U.toast(id + ' returned to the maker for reassignment.' + nextNote(next), 'warn');
       PCAP.app.render();
       scrollToDetail();
     },
@@ -1348,15 +1699,12 @@
       var input = document.getElementById('rekey-input');
       var amt = U.parseAmount(input ? input.value : '');
       if (isNaN(amt)) {
-        U.toast('Type the amount as a number, for example 7,820,000 or 7.82m.', 'bad');
-        if (input) input.focus();
+        showError('rk-amt-err', 'Type the amount from your source as a number, for example 7,820,000 or 7.82m.', '#rekey-input');
         return;
       }
       var nat = document.querySelector('input[name="rk-nature"]:checked');
       if (!nat) {
-        U.toast('Say what your source says the payment is: interest only, principal and interest, or principal only.', 'bad');
-        var first = document.querySelector('input[name="rk-nature"]');
-        if (first) first.focus();
+        showError('rk-type-err', 'Pick what your source says the payment is: interest only, principal and interest, or principal only.', 'input[name="rk-nature"]');
         return;
       }
       var rk = store.approverRekey(id, amt, nat.value);
@@ -1366,22 +1714,30 @@
       PCAP.app.render();
       if (rk.status !== 'retry') scrollToDetail();
     },
-    approve: function (btn, id) {
+    approve: function (btn, id, e) {
+      if (tooSoon(e)) return;
       var ev = store.currentEval(store.payment(id));
       var box = document.getElementById('confirm-box');
-      if (ev.tier === 2 && (!box || !box.checked)) { U.toast('Tick the Tier 2 confirmation first.', 'bad'); if (box) box.focus(); return; }
+      if (ev.tier === 2 && (!box || !box.checked)) {
+        showError('confirm-err', 'Tick "I confirm" first. It says what will leave the bank.', '#confirm-box');
+        if (box) box.closest('.confirm').scrollIntoView({ block: 'center' });
+        return;
+      }
       var dwell = dwellSec(store.payment(id));
       store.approverApprove(id, { dwellSec: dwell, confirmed: !!(box && box.checked) });
-      U.toast(id + ' released at Tier ' + ev.tier + '. ' + shortAmt(ev.consequence.externalTotal) + ' left the bank.', 'ok');
+      var next = advance('approver', id);
+      U.toast(id + ' released at Tier ' + ev.tier + '. ' + shortAmt(ev.consequence.externalTotal) + ' left the bank.' + nextNote(next), 'ok');
       PCAP.app.render();
       scrollToDetail();
     },
-    escalate: function (btn, id) {
+    escalate: function (btn, id, e) {
+      if (tooSoon(e)) return;
       var dwell = dwellSec(store.payment(id));
       var note = (document.getElementById('approver-note') || {}).value || '';
       store.approverEscalate(id, { dwellSec: dwell, note: note.trim() });
       delete noteDrafts[id + ':approver-note'];
-      U.toast(id + ' held at Tier 3 and sent to Operational Risk.', 'bad');
+      var next = advance('approver', id);
+      U.toast(id + ' held at Tier 3 and sent to Operational Risk.' + nextNote(next), 'bad');
       PCAP.app.render();
       scrollToDetail();
     },
@@ -1398,16 +1754,64 @@
       };
       ui().deskFlow = { step: 1 };
       store.save();
+      /* If a workaround leg is what failed, open the form at the routing so the fix is the first thing you see. */
+      var toRouting = missingLegs(ui().makerDraft).length > 0;
+      if (toRouting) scrollAfter = '#routing-group';
       PCAP.app.render();
-      scrollToDetail();
+      if (!toRouting) scrollToDetail();
     },
     cancel: function (btn, id) {
-      if (!window.confirm('Cancel ' + id + '? It will not be sent.')) return;
+      if (!window.confirm('Cancel ' + id + '? It will not be sent, and this cannot be undone.')) return;
       store.cancelPayment(id, store.roleUserId('maker'));
       U.toast(id + ' cancelled.', 'ok');
       PCAP.app.render();
     }
   };
+
+  /* Desk shortcuts. J and K move through the queue, slash searches it, Ctrl+Enter does the main action of your panel.
+     Single letters are ignored while typing. None of them releases a payment on its own. */
+  function onKey(e) {
+    if (PCAP.app.currentRoute() !== 'desk') return;
+    var t = e.target;
+    var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    if (e.key === 'Enter' && e.repeat) { e.preventDefault(); return; }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      var prim = document.querySelector('#desk-detail .d-rail [data-primary], #desk-detail .d-focus [data-primary]');
+      if (prim) { e.preventDefault(); prim.click(); }
+      return;
+    }
+    if (typing) {
+      if (e.key === 'Escape' && t.id === 'q-search') { t.value = ''; qFilter().text = ''; applyQueueFilter(); t.blur(); }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === '/') {
+      var s = document.getElementById('q-search');
+      if (s) {
+        e.preventDefault();
+        var q = document.querySelector('.queue.is-collapsed');
+        if (q) { ui().deskQueueOpen = true; PCAP.app.render(); s = document.getElementById('q-search'); }
+        focusEl(s);
+      }
+      return;
+    }
+    if (e.key === 'j' || e.key === 'k') {
+      /* The queue may be folded away on a phone: J and K still walk the rows the filter shows. */
+      var rows = Array.prototype.slice.call(document.querySelectorAll('.queue li:not([hidden]) > .q-row'));
+      if (!rows.length) return;
+      var cur = ui().deskSel;
+      var i = -1;
+      rows.forEach(function (r, k) { if (r.getAttribute('data-id') === cur) i = k; });
+      var n = e.key === 'j' ? Math.min(rows.length - 1, i + 1) : Math.max(0, i < 0 ? 0 : i - 1);
+      if (n === i) return;
+      e.preventDefault();
+      ACTIONS.select(rows[n], rows[n].getAttribute('data-id'));
+      return;
+    }
+    if (e.key === '?') {
+      U.toast('Desk keys: J and K move through the queue. / searches it. Enter presses the focused button. Ctrl+Enter does the main action of your panel.', 'ok');
+    }
+  }
 
   function bind(el) {
     el.onclick = function (e) {
@@ -1424,14 +1828,29 @@
         U.toast(err.message || String(err), 'bad');
       }
     };
+    /* Remember whether Operational Risk opened the release path, so a re-draw keeps it open. */
+    if (!el.__deskToggle) {
+      el.__deskToggle = true;
+      el.addEventListener('toggle', function (e) {
+        var d = e.target;
+        if (d && d.classList && d.classList.contains('release-path')) ui().oprRelease = d.open ? ui().deskSel : null;
+      }, true);
+    }
     el.oninput = function (e) {
       var t = e.target;
+      if (t.id === 'q-search') { qFilter().text = t.value; applyQueueFilter(); store.save(); return; }
       if (t.form && t.form.id === 'maker-form') { readForm(t.form); refreshFlowHints(); return; }
       var k = t.getAttribute && t.getAttribute('data-note');
       if (k) noteDrafts[k] = t.value;
+      clearErrors(t);
+      if (t.id === 'opr-reason') {
+        var c = document.getElementById('opr-count'), min = +t.getAttribute('data-min') || 15, have = t.value.trim().length;
+        if (c) { c.textContent = countText(have, min); c.classList.toggle('is-ok', have >= min); }
+      }
     };
     el.onchange = function (e) {
       var t = e.target;
+      if (t.name === 'rk-nature' || t.id === 'confirm-box' || t.name === 'opr-category') clearErrors(t);
       if (t.form && t.form.id === 'maker-form') {
         var d = readForm(t.form);
         if (t.name === 'operation') {
@@ -1470,5 +1889,12 @@
     };
   }
 
-  views.desk = { render: render, PRESETS: PRESETS, parseDate: parseDate };
+  /* Once the person starts fixing a field, the message about it goes away. */
+  function clearErrors(t) {
+    var box = t.closest && t.closest('.action, .rekey');
+    if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('.ferr:not([hidden])'), function (x) { x.hidden = true; });
+  }
+
+  views.desk = { render: render, onKey: onKey, PRESETS: PRESETS, parseDate: parseDate };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

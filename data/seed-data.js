@@ -33,17 +33,22 @@
       { id: 'U-OR1', name: 'Rana H.', employer: 'Citi', inHouse: true, team: 'Citi Operational Risk', title: 'Operational Risk, second line', roles: ['oprisk'], reportsTo: null, approvalLimit: 0, certs: [] },
       { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations, first line owner', roles: ['owner'], reportsTo: null, approvalLimit: 0, certs: [] },
       { id: 'U-TEC', name: 'Evan L.', employer: 'Citi', inHouse: true, team: 'Citi Technology', title: 'Tech lead, payments platform', roles: ['tech'], reportsTo: null, approvalLimit: 0, certs: [] },
-      { id: 'U-IA1', name: 'Noor A.', employer: 'Citi', inHouse: true, team: 'Citi Internal Audit', title: 'Internal Audit, third line', roles: ['audit'], reportsTo: null, approvalLimit: 0, certs: [] }
+      { id: 'U-IA1', name: 'Noor A.', employer: 'Citi', inHouse: true, team: 'Citi Internal Audit', title: 'Internal Audit, third line', roles: ['audit'], reportsTo: null, approvalLimit: 0, certs: [] },
+      /* Read-only viewers: they see results, never act on a payment or run a control. */
+      { id: 'U-BRC', name: 'Board Risk Committee', employer: 'Citi', inHouse: true, team: 'Citi Board', title: 'Board Risk Committee, reads the quarterly pack', roles: ['board'], reportsTo: null, approvalLimit: 0, certs: [] },
+      { id: 'U-WSM', name: 'Arun P.', employer: 'Wipro', inHouse: false, team: 'Wipro service management', title: 'Service delivery manager (outsourced provider)', roles: ['vendor'], reportsTo: null, approvalLimit: 0, certs: [] }
     ],
 
-    /* Demo personas behind the role switcher. */
+    /* Demo personas behind the role switcher. "home" is the screen each one opens first. */
     roles: [
-      { id: 'maker', label: 'Maker (Wipro ops)', userId: 'U-MK1' },
-      { id: 'checker', label: 'Checker (Wipro ops)', userId: 'U-CK1' },
-      { id: 'approver', label: 'Approver (Citi, in-house)', userId: 'U-AP1' },
-      { id: 'oprisk', label: 'Operational Risk (second line)', userId: 'U-OR1' },
-      { id: 'owner', label: 'Head of Loan Ops (risk owner)', userId: 'U-HLO' },
-      { id: 'audit', label: 'Internal Audit (third line)', userId: 'U-IA1' }
+      { id: 'maker', label: 'Maker (Wipro ops)', userId: 'U-MK1', home: 'desk' },
+      { id: 'checker', label: 'Checker (Wipro ops)', userId: 'U-CK1', home: 'desk' },
+      { id: 'approver', label: 'Approver (Citi, in-house)', userId: 'U-AP1', home: 'desk' },
+      { id: 'oprisk', label: 'Operational Risk (second line)', userId: 'U-OR1', home: 'desk' },
+      { id: 'owner', label: 'Head of Loan Ops (risk owner)', userId: 'U-HLO', home: 'register' },
+      { id: 'audit', label: 'Internal Audit (third line)', userId: 'U-IA1', home: 'oversight' },
+      { id: 'board', label: 'Board Risk Committee', userId: 'U-BRC', home: 'oversight' },
+      { id: 'vendor', label: 'Wipro service manager', userId: 'U-WSM', home: 'analytics' }
     ],
 
     /* Loans with schedules. "offset" is days from the business date. */

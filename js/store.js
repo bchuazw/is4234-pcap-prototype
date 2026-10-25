@@ -13,8 +13,10 @@
   var U = PCAP.util;
   var DATA = PCAP.data;
 
-  var VERSION = 5;
+  var VERSION = 6;
   var KEY = 'pcap-prototype-state';
+  /* Which role a payment is waiting for, by status. */
+  var WAITS = { SUBMITTED: 'checker', CHECKED: 'approver', HELD: 'oprisk', RETURNED: 'maker' };
 
   /* Browser storage only. Outside a browser (Node tests) state stays in memory. */
   var storage = (function () {
@@ -459,6 +461,68 @@
       .sort(function (a, b) { return a.acceptance.at < b.acceptance.at ? 1 : -1; });
   }
 
+  /* Internal Audit (third line) records that it reviewed a risk acceptance: no issue, or a finding with a reason.
+     This is audit work, not running a control, so it is the one thing the read-only audit role can record. */
+  function auditReviewAcceptance(paymentId, actorId, outcome, note) {
+    if (roleOf(actorId) !== 'audit') throw new Error('Only Internal Audit (third line) records the review of a risk acceptance.');
+    var p = payment(paymentId);
+    var acc = p && p.opRisk && p.opRisk.acceptance;
+    if (!acc) throw new Error('There is no risk acceptance on this payment.');
+    if (acc.review) throw new Error(acc.id + ' was already reviewed by ' + userName(acc.review.by) + '.');
+    var finding = outcome === 'finding';
+    var text = String(note || '').trim();
+    if (finding && text.length < E.DEFAULT_CONFIG.reasonMinChars) throw new Error('Describe the finding in at least ' + E.DEFAULT_CONFIG.reasonMinChars + ' characters, so the owner knows what to fix.');
+    acc.review = { by: actorId, at: nowISO(), date: today(), outcome: finding ? 'finding' : 'no-issue', note: text };
+    logEvent({
+      type: 'ACCEPTANCE_REVIEWED', paymentId: paymentId, module: 'M6', obligations: ['O1', 'O2'], actorId: actorId, result: finding ? 'fire' : 'pass',
+      detail: 'Internal Audit reviewed risk acceptance ' + acc.id + ' (risk owner ' + userName(acc.ownerId) + ', recorded by ' + userName(acc.recordedById) + '): ' + (finding ? 'finding raised. ' + text : 'no issue.' + (text ? ' ' + text : '')),
+      data: { acceptance: acc.id, outcome: acc.review.outcome }
+    });
+    save();
+    return acc;
+  }
+
+  /* Payments waiting for a role, in queue order (newest first). */
+  function waitingFor(role) {
+    return S.state.payments.filter(function (p) { return WAITS[p.status] === role; });
+  }
+
+  /* What needs this role now, per screen. Only things the role has to act on, never FYI items, to avoid alert fatigue. */
+  function todoCounts(role) {
+    var items = [];
+    var uid = roleUserId(role);
+    var bd = today();
+    if (role === 'maker' || role === 'checker' || role === 'approver' || role === 'oprisk') {
+      var n = waitingFor(role).length;
+      if (n) items.push({ route: 'desk', count: n, text: n + ' payment' + (n === 1 ? '' : 's') + ' waiting for you' });
+    }
+    if (role === 'owner') {
+      var reg = S.state.ctx.register;
+      var due = reg.filter(function (r) {
+        if (r.status === 'Proposed') return true;
+        if (r.status !== 'Active') return false;
+        return (r.nextReview && r.nextReview < bd) || (r.dispensationUntil && E.daysBetween(bd, r.dispensationUntil) <= E.DEFAULT_CONFIG.expiringDays);
+      }).length;
+      if (due) items.push({ route: 'register', count: due, text: due + ' register entr' + (due === 1 ? 'y needs' : 'ies need') + ' you' });
+    }
+    if (role === 'audit') {
+      var open = riskAcceptances().filter(function (x) { return !x.acceptance.review; }).length;
+      if (open) items.push({ route: 'oversight', count: open, text: open + ' risk acceptance' + (open === 1 ? '' : 's') + ' to review' });
+    }
+    if (uid && (role === 'oprisk' || role === 'owner')) {
+      var mine = {};
+      (S.state.ctx.controls || []).forEach(function (c) { if (c.ownerId === uid) mine[c.id] = 1; });
+      /* Register reviews and dispensations already show on the register for the owner. */
+      if (role === 'owner') { delete mine['CC-02']; delete mine['CC-03']; }
+      var notGreen = controlHealth().controls.filter(function (c) { return mine[c.id] && c.rag !== 'green'; }).length;
+      if (notGreen) items.push({ route: 'monitor', count: notGreen, text: notGreen + ' control' + (notGreen === 1 ? '' : 's') + ' you own not green' });
+    }
+    return { role: role, items: items, total: items.reduce(function (s, x) { return s + x.count; }, 0) };
+  }
+
+  /* This week's work, counted from the event log. */
+  function weekSummary() { return E.weekSummary(S.state.events, S.state.m4.weekStart); }
+
   function opRiskReject(id, actorId, reason, decideSec) {
     var p = payment(id);
     if (!p || p.status !== 'HELD') throw new Error('Payment is not on hold.');
@@ -560,10 +624,18 @@
 
   function controlHealth() { return E.controlHealth(healthInput()); }
 
-  /* Internal Audit (third line) reviews controls but does not run them, or it would be auditing its own work. */
+  /* Internal Audit (third line) reviews controls but does not run them, or it would be auditing its own work.
+     The Board and the outsourced provider's service manager only read results. */
+  var NO_CONTROL_RUN = {
+    audit: 'Internal Audit (third line) reviews controls but does not run them.',
+    board: 'The Board Risk Committee oversees the controls but does not run them.',
+    vendor: 'The outsourced provider does not run the bank\'s controls.'
+  };
   function assertNotAudit(actorId) {
-    if (roleOf(actorId) === 'audit') throw new Error('Internal Audit (third line) reviews controls but does not run them.');
+    var msg = NO_CONTROL_RUN[roleOf(actorId)];
+    if (msg) throw new Error(msg);
   }
+  function canRunControls(role) { return !NO_CONTROL_RUN[role]; }
 
   function runReconciliation(actorId) {
     assertNotAudit(actorId);
@@ -847,6 +919,12 @@
     opRiskRelease: opRiskRelease,
     opRiskReject: opRiskReject,
     riskAcceptances: riskAcceptances,
+    auditReviewAcceptance: auditReviewAcceptance,
+    waitingFor: waitingFor,
+    todoCounts: todoCounts,
+    weekSummary: weekSummary,
+    canRunControls: canRunControls,
+    WAITS: WAITS,
     rekeyAttempts: rekeyAttempts,
     addWorkaround: addWorkaround,
     reviewWorkaround: reviewWorkaround,

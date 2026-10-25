@@ -17,15 +17,16 @@
     var actor = store.roleUserId(st().role);
     var pays = st().payments;
     var today = store.today();
-    var isAudit = st().role === 'audit';
+    var role = st().role;
+    var isAudit = !store.canRunControls(role); /* Internal Audit, the Board and the provider read results, they do not run controls */
     var involved = E.involvedIn(pays.map(function (p) { return { releasedDate: p.releasedDate, makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId }; }), actor, today);
     var actions = {
-      'CC-01': '<button class="btn small primary" data-act="recon"' + (isAudit ? ' disabled title="Internal Audit reviews controls but does not run them"' : '') + '>Run same-day reconciliation</button>',
+      'CC-01': '<button class="btn small primary" data-act="recon"' + (isAudit ? ' disabled title="Read only: Operational Risk runs this control"' : '') + '>Run same-day reconciliation</button>',
       'CC-02': '<a class="btn small" href="#/register">Open register</a>',
       'CC-03': '<a class="btn small" href="#/register">Open register</a>',
       'CC-04': '<button class="btn small" data-act="scroll-cert">See certifications</button>',
       'CC-05': '<button class="btn small" data-act="queue">Open hard-stop queue</button>',
-      'CC-06': '<button class="btn small primary" data-act="regression"' + (isAudit ? ' disabled title="Internal Audit reviews controls but does not run them"' : '') + '>Run replay regression test</button>'
+      'CC-06': '<button class="btn small primary" data-act="regression"' + (isAudit ? ' disabled title="Read only: Operational Risk runs this control"' : '') + '>Run replay regression test</button>'
     };
     var overallText = { green: 'All compensating controls ran and passed.', amber: 'Some controls need attention. Owners have been alerted.', red: 'At least one control failed or did not run. Escalate to the owner and the second line.' };
 
@@ -40,7 +41,7 @@
     var rec = E.reconcile(pays.map(function (p) { return { id: p.id, loanId: p.loanId, status: p.status, releasedDate: p.releasedDate, releasedExternal: p.releasedExternal, expectedAtRelease: p.expectedAtRelease, releasedBy: p.releasedBy }; }), today);
     var runs = st().reconRuns.slice(-5).reverse();
     var recon = '<div class="card"><div class="card-head"><h2>Same-day reconciliation: released vs expected</h2><span class="muted small">Business date ' + U.esc(U.fmtDate(today)) + '</span></div>' +
-      (isAudit ? '<div class="banner info">' + U.icon('info') + '<span>As Internal Audit (third line) you review these results but do not run the controls, or you would be auditing your own work. Switch role to Operational Risk to run them.</span></div>' : '') +
+      (isAudit ? '<div class="banner info">' + U.icon('info') + '<span>' + (role === 'audit' ? 'As Internal Audit (third line) you review these results but do not run the controls, or you would be auditing your own work.' : 'You read these results but do not run the controls.') + ' Switch role to Operational Risk to run them.</span></div>' : '') +
       (involved && !isAudit ? '<div class="banner warn">' + U.icon('warn') + '<span>You (' + U.esc(store.userName(actor)) + ') took part in a payment released today, so a run by you will be logged as not independent. Switch role to Operational Risk.</span></div>' : '') +
       (rec.rows.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Loan</th><th>Released by</th><th class="num">Left the bank</th><th class="num">Schedule expected</th><th class="num">Difference</th><th>Status</th></tr></thead><tbody>' +
         rec.rows.map(function (r) {

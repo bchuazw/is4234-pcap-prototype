@@ -1400,6 +1400,108 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Cost and value per user (what PCAP adds to each job, what it saves) */
+  /* ------------------------------------------------------------------ */
+
+  /* Illustrative assumptions for the audit estimate. They are not from the case record and are labelled as assumptions on screen. */
+  var VALUE_ASSUMPTIONS = {
+    auditSamplePerQuarter: 25, // payments Internal Audit tests by hand each quarter without PCAP
+    auditMinPerSample: 20,     // minutes to request and collect the approval evidence for one sampled payment by hand
+    monthsPerQuarter: 3        // the synthetic batch covers about one month of business days
+  };
+
+  function round1(x) { return Math.round((+x || 0) * 10) / 10; }
+
+  /* What PCAP costs and saves at the synthetic test's volume, from its own summary. Model estimates, not measurements. */
+  function valueEstimate(summary, assumptionsIn) {
+    var a = assign({}, VALUE_ASSUMPTIONS, assumptionsIn || {});
+    var t = summary.tiers, time = summary.time, d = summary.detection, n = summary.n;
+    var tier1 = t.clean[1] + t.error[1], tier2 = t.clean[2] + t.error[2], tier3 = t.clean[3] + t.error[3], gate = t.clean.gate + t.error.gate;
+    var timed = time.timedCount != null ? time.timedCount : n - gate;
+    var perQuarter = n * a.monthsPerQuarter;
+    return {
+      n: n,
+      tier1: tier1, tier2: tier2, tier3: tier3, gate: gate,
+      tier1Share: n ? tier1 / n : null,
+      extraStepShare: n ? (tier2 + tier3) / n : null,
+      cleanShare: n ? summary.cleanCount / n : null,
+      policyTier2Clean: summary.policyTier2Clean,
+      falseAlarms: summary.falseAlarms.count,
+      tier1MedianSec: time.medianTier1Sec,
+      tier23MedianSec: time.medianTier23Sec,
+      meanSec: time.meanAllSec,
+      approverHoursPerMonth: round1((time.meanAllSec || 0) * timed / 3600),
+      opRiskHoursPerMonth: round1(tier3 * (time.medianHoldMin || 0) / 60),
+      errors: summary.errorCount,
+      stoppedBeforeRelease: d.stoppedBeforeRelease,
+      foundSameDay: d.foundAfterRelease,
+      missed: d.missed,
+      paymentsPerQuarter: perQuarter,
+      auditManualHoursPerQuarter: round1(a.auditSamplePerQuarter * a.auditMinPerSample / 60),
+      auditManualCoverage: perQuarter ? a.auditSamplePerQuarter / perQuarter : null,
+      assumptions: a
+    };
+  }
+
+  /* This week's work, counted from the tagged event log (events on or after weekStart). Pure, so the tests can check it. */
+  function weekSummary(events, weekStart) {
+    var out = {
+      events: 0, paymentsCovered: 0, keyed: 0, resubmitted: 0, checked: 0, returned: 0, checkerReturns: 0, approverReturns: 0, gateBlocks: 0,
+      released: 0, releasedByTier: { 1: 0, 2: 0, 3: 0 }, holds: 0, heldRejected: 0, heldReleased: 0, keptBack: 0,
+      sentOnTier3: 0, rekeys: 0, rekeySlips: 0, rekeyCatches: 0, acceptances: 0, auditReviews: 0, attestations: 0,
+      exports: 0, controlRuns: 0, dwellTier1: [], dwellTier23: [], minutesHeld: [],
+      medianDwellTier1: null, medianDwellTier23: null, medianMinutesHeld: null
+    };
+    var tierAt = {}, held = {}, pays = {}, blocked = {};
+    (events || []).forEach(function (e) {
+      if (e.paymentId && (e.type === 'SUBMITTED' || e.type === 'RESUBMITTED')) tierAt[e.paymentId] = e.data ? e.data.tier : null;
+      if (e.type === 'HELD') held[e.paymentId] = e.data || {};
+      if (!(e.businessDate >= weekStart)) return;
+      out.events += 1;
+      if (e.paymentId) pays[e.paymentId] = 1;
+      switch (e.type) {
+        case 'SUBMITTED': out.keyed += 1; break;
+        case 'RESUBMITTED': out.resubmitted += 1; break;
+        case 'CHECKED': out.checked += 1; if (tierAt[e.paymentId] === 3) out.sentOnTier3 += 1; break;
+        case 'RETURNED':
+          out.returned += 1;
+          if (e.data && e.data.stage === 'checker') out.checkerReturns += 1;
+          else if (e.data && e.data.stage === 'approver') out.approverReturns += 1;
+          break;
+        case 'BLOCKED_ATTEMPT': if (!blocked[e.paymentId]) { blocked[e.paymentId] = 1; out.gateBlocks += 1; } break;
+        case 'RELEASED':
+          out.released += 1;
+          if (e.data && out.releasedByTier[e.data.tier] != null) out.releasedByTier[e.data.tier] += 1;
+          if (e.data && typeof e.data.dwellSec === 'number') (e.data.tier >= 2 ? out.dwellTier23 : out.dwellTier1).push(e.data.dwellSec);
+          break;
+        case 'OPRISK_RELEASED': out.released += 1; out.releasedByTier[3] += 1; out.heldReleased += 1; if (e.data) out.minutesHeld.push(e.data.minutesHeld); break;
+        case 'HELD': out.holds += 1; break;
+        case 'OPRISK_REJECTED':
+          out.heldRejected += 1;
+          if (e.data) out.minutesHeld.push(e.data.minutesHeld);
+          var h = held[e.paymentId];
+          if (h && typeof h.external === 'number' && typeof h.expected === 'number') out.keptBack = round2(out.keptBack + Math.max(0, h.external - h.expected));
+          break;
+        case 'REKEY':
+          if (e.result === 'pass' || e.result === 'fire') out.rekeys += 1;
+          if (e.data && e.data.kind === 'slip' && e.result === 'pass') out.rekeySlips += 1;
+          if (e.data && e.data.kind === 'catch' && e.result === 'fire') out.rekeyCatches += 1;
+          break;
+        case 'RISK_ACCEPTED': out.acceptances += 1; break;
+        case 'ACCEPTANCE_REVIEWED': out.auditReviews += 1; break;
+        case 'REGISTER_REVIEWED': case 'REGISTER_APPROVED': out.attestations += 1; break;
+        case 'EVIDENCE_EXPORTED': out.exports += 1; break;
+        case 'RECON_RUN': case 'CONTROL_TEST': out.controlRuns += 1; break;
+      }
+    });
+    out.paymentsCovered = Object.keys(pays).length;
+    out.medianDwellTier1 = median(out.dwellTier1);
+    out.medianDwellTier23 = median(out.dwellTier23);
+    out.medianMinutesHeld = median(out.minutesHeld);
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Export                                                              */
   /* ------------------------------------------------------------------ */
 
@@ -1468,6 +1570,10 @@
     generateSyntheticBatch: generateSyntheticBatch,
     runSyntheticTest: runSyntheticTest,
     createSeedSweep: createSeedSweep,
-    runSeedSweep: runSeedSweep
+    runSeedSweep: runSeedSweep,
+    // cost and value per user
+    VALUE_ASSUMPTIONS: VALUE_ASSUMPTIONS,
+    valueEstimate: valueEstimate,
+    weekSummary: weekSummary
   };
 });

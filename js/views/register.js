@@ -73,6 +73,34 @@
       tile('Override use mapped to the register', mining.share == null ? 'n/a' : U.fmtPctPlain(mining.share, 0), mining.mapped + ' of ' + mining.total + ' uses. Evidence for obligation row O4.', mining.share == null || mining.share === 1 ? 'green' : 'amber') +
       '</div>';
 
+    /* The owner's to-do list: each item says what is due and has the one button that deals with it, so nobody hunts through the table. */
+    var proposed = reg.filter(function (r) { return r.status === 'Proposed'; });
+    var todo = [];
+    overdue.forEach(function (r) {
+      todo.push('<li><span class="nd-what"><strong>' + U.esc(r.id) + ' review is ' + E.daysBetween(r.nextReview, store.today()) + ' days overdue.</strong> ' + U.esc(r.title) + '.</span>' +
+        '<button class="btn small primary" data-act="review" data-id="' + r.id + '"' + (isOwner ? '' : ' disabled title="Owner only"') + '>Mark reviewed</button></li>');
+    });
+    proposed.forEach(function (r) {
+      todo.push('<li><span class="nd-what"><strong>' + U.esc(r.id) + ' is proposed and waiting for you.</strong> Until you approve it, R-03 blocks any payment that uses it.</span>' +
+        '<button class="btn small primary" data-act="approve" data-id="' + r.id + '"' + (isOwner ? '' : ' disabled title="Owner only"') + '>Approve</button></li>');
+    });
+    expiring.forEach(function (r) {
+      var d = E.daysBetween(store.today(), r.dispensationUntil);
+      todo.push('<li><span class="nd-what"><strong>' + U.esc(r.id) + ' ' + U.term('dispensation', 'dispensation') + (d < 0 ? ' expired ' + (-d) + ' days ago.' : ' ends in ' + d + ' days.') + '</strong> Renew it through change control with a refresh date, or retire the workaround. After it ends, R-03 blocks every payment that uses it.</span>' +
+        '<button class="btn small" data-act="goto" data-id="' + r.id + '">See ' + U.esc(r.id) + '</button></li>');
+    });
+    var uid = store.roleUserId('owner');
+    var owned = store.riskAcceptances().filter(function (x) { return x.acceptance.ownerId === uid; });
+    var needs = '<div class="card needs" id="owner-todo"><div class="card-head"><h2>' + (isOwner ? 'Needs you' : 'Needs the owner') + '</h2><span class="muted small">' + (todo.length ? todo.length + ' item' + (todo.length === 1 ? '' : 's') : 'Nothing due') + '</span></div>' +
+      (todo.length ? '<ul class="needs-list">' + todo.join('') + '</ul>' : '<p class="empty">Nothing is due. Every active workaround is reviewed and in date.</p>') +
+      '<h3 id="owner-acceptances">Tier 3 risk acceptances you own</h3>' +
+      (owned.length ? '<ul class="needs-list">' + owned.map(function (x) {
+        var a = x.acceptance;
+        return '<li><span class="nd-what"><strong>' + U.esc(a.id) + ' for ' + U.esc(a.paymentId) + '</strong>, recorded by ' + U.esc(store.userName(a.recordedById)) + ': ' + U.esc(a.category) + '. This payment only, ends ' + U.esc(U.fmtDate(a.expires)) + '. Follow-up: ' + U.esc(a.followUp) + '. ' +
+          (a.review ? 'Internal Audit: ' + (a.review.outcome === 'finding' ? 'finding raised.' : 'no issue.') : 'Internal Audit has not reviewed it yet.') + '</span>' +
+          '<a href="#" class="btn small" data-open-payment="' + U.esc(a.paymentId) + '">Evidence</a></li>';
+      }).join('') + '</ul>' : '<p class="empty">None. When Operational Risk releases a Tier 3 payment, it names you as the first-line risk owner and it shows here.</p>') + '</div>';
+
     var table = '<div class="card"><div class="card-head"><h2>Register</h2><span class="muted small">' + (isOwner ? 'You are the owner: you can review, approve and retire entries.' : 'Switch role to Head of Loan Ops to review, approve or retire entries.') + '</span></div>' +
       '<div class="table-wrap"><table class="table reg"><thead><tr><th>ID</th><th>Workaround and legacy constraint</th><th>Required fields</th><th>Owner</th><th>In use for</th><th>Next review</th><th>Dispensation</th><th>Status</th><th></th></tr></thead><tbody>' +
       reg.map(function (r) {
@@ -81,7 +109,7 @@
         if (r.status === 'Active') acts += '<button class="btn small" data-act="review" data-id="' + r.id + '"' + (isOwner ? '' : ' disabled title="Owner only"') + '>Mark reviewed</button>';
         if (r.status === 'Proposed') acts += '<button class="btn small primary" data-act="approve" data-id="' + r.id + '"' + (isOwner ? '' : ' disabled title="Owner only"') + '>Approve</button>';
         if (r.status !== 'Retired') acts += '<button class="btn small ghost" data-act="retire" data-id="' + r.id + '"' + (isOwner ? '' : ' disabled title="Owner only"') + '>Retire</button>';
-        return '<tr class="' + (r.status === 'Retired' ? 'retired' : '') + '"><td><strong>' + U.esc(r.id) + '</strong>' + (r.onDesk ? '<div class="small muted">used on payment desk</div>' : '') + '</td>' +
+        return '<tr id="reg-' + r.id + '" class="' + (r.status === 'Retired' ? 'retired' : '') + '"><td><strong>' + U.esc(r.id) + '</strong>' + (r.onDesk ? '<div class="small muted">used on payment desk</div>' : '') + '</td>' +
           '<td><div class="reg-title">' + U.esc(r.title) + '</div><div class="small muted">Constraint: ' + U.esc(r.constraint) + '</div><div class="small">Workaround: ' + U.esc(r.workaround) + '</div>' + (r.refreshPlan ? '<div class="small muted">Refresh plan: ' + U.esc(r.refreshPlan) + '</div>' : '') + '</td>' +
           '<td>' + (r.requiredFields || []).map(function (f) { return '<span class="chip field">' + U.esc(f) + '</span>'; }).join(' ') + '<div class="small muted">set to ' + U.esc(r.requiredValue === 'WASH' ? 'wash account' : r.requiredValue) + '</div></td>' +
           '<td>' + U.esc(owner ? owner.name : 'Unassigned') + '<div class="small muted">' + U.esc(owner ? owner.title : '') + '</div></td>' +
@@ -98,7 +126,7 @@
       '<label class="span2"><span>Workaround</span><input name="workaround" required placeholder="What staff do instead"></label>' +
       '<fieldset class="span2"><legend>Required fields (must be set to the wash account)</legend>' + E.OVERRIDE_FIELDS.map(function (f) { return '<label class="check"><input type="checkbox" name="rf" value="' + f + '" checked> ' + f + '</label>'; }).join('') + '</fieldset>' +
       '<label><span>Applies to operation</span><select name="appliesTo"><option value="">None (another process)</option>' + ops + '</select></label>' +
-      '<label><span>Owner</span><select name="ownerId">' + users.filter(function (u) { return u.inHouse; }).map(function (u) { return '<option value="' + u.id + '"' + (u.id === 'U-HLO' ? ' selected' : '') + '>' + U.esc(u.name + ', ' + u.title) + '</option>'; }).join('') + '</select></label>' +
+      '<label><span>Owner</span><select name="ownerId">' + users.filter(function (u) { return u.inHouse && (u.roles || []).indexOf('board') < 0; }).map(function (u) { return '<option value="' + u.id + '"' + (u.id === 'U-HLO' ? ' selected' : '') + '>' + U.esc(u.name + ', ' + u.title) + '</option>'; }).join('') + '</select></label>' +
       '<label><span>Review every (days)</span><input name="reviewDays" type="number" min="30" max="365" value="180"></label>' +
       '<label><span>Dispensation until</span><input name="dispensationUntil" type="date" value="' + E.addDays(store.today(), 365) + '"></label>' +
       '<label class="span2"><span>Refresh plan</span><input name="refreshPlan" placeholder="How and when the core system will remove the need"></label>' +
@@ -111,7 +139,7 @@
 
     el.innerHTML = '<div class="page-head"><h1>' + U.moduleChip('M1') + ' Workaround and Legacy Constraint Register</h1><p class="lede">Every approved workaround, why it exists, what it needs, who owns it, how old it is and when it must be reviewed or retired. A workaround that is not here cannot be used to release a payment.</p>' +
       '<p class="lede">Each active entry is a documented risk acceptance (L5): the legacy constraint is assessed, the first-line owner accepts what is left, and the dispensation is the date the acceptance expires (MAS TRM 7.3.2 to 7.3.3). In 2020 the wash-account workaround had none of this, so the risk was carried without anyone deciding to accept it (report 3.3.2).</p></div>' +
-      tiles + table + riskCard() + add + mine;
+      (PCAP.views.value && isOwner ? PCAP.views.value.strip('owner') : '') + needs + tiles + table + riskCard() + add + mine;
 
     el.onclick = function (e) {
       var b = e.target.closest('[data-act]');
@@ -119,6 +147,7 @@
         var id = b.getAttribute('data-id');
         var actor = store.roleUserId(st().role);
         var act = b.getAttribute('data-act');
+        if (act === 'goto') { var row = document.getElementById('reg-' + id); if (row) { row.scrollIntoView({ block: 'center' }); row.classList.add('is-flash'); setTimeout(function () { row.classList.remove('is-flash'); }, 1600); } return; }
         if (act === 'review') { store.reviewWorkaround(id, actor); U.toast(id + ' reviewed. Owner attestation logged.', 'ok'); }
         if (act === 'approve') { store.approveWorkaround(id, actor); U.toast(id + ' approved and active.', 'ok'); }
         if (act === 'retire') {
