@@ -66,8 +66,8 @@
     var desk = opRiskDesk();
     var isOpRisk = st().role === 'oprisk';
 
-    var html = '<div class="page-head"><h1>' + U.moduleChip('M4') + ' Approval Behaviour Analytics</h1><p class="lede">How approvals happen, not just that they happened. Signals are combined into the R-08 rubber-stamp score per team and week. M4 never blocks a payment and never treats dwell time as a pass mark.</p></div>' +
-      '<div class="banner privacy">' + U.icon('shield') + '<span><strong>Privacy by design.</strong> Team level and weekly by default. Named individuals only for Tier 2 and 3 payments, by Operational Risk, with a reason that is logged. Purpose is payment control, not productivity. Staff are told, and the Data Protection Officer is consulted before launch (PDPA purpose and notification).</span></div>' +
+    var html = '<div class="page-head"><h1>' + U.moduleChip('M4') + ' Approval Behaviour Analytics</h1><p class="lede">How approvals happen, not just that they happened. Signals are combined into the R-08 rubber-stamp score per team, scored weekly and reported to Operational Risk in the monthly control report. M4 never blocks a payment and never treats time on screen as a pass mark.</p></div>' +
+      '<div class="banner privacy">' + U.icon('shield') + '<span><strong>Privacy by design.</strong> Team level by default. Named individuals only for Tier 2 and 3 payments, by Operational Risk, with a reason that is logged. Purpose is payment control, not productivity. Staff are told, and the Data Protection Officer is consulted before launch (PDPA purpose and notification).</span></div>' +
       '<div class="tiles">' +
       tile('Median time on the consequence screen (Tier 2 and 3)', all.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(all.medianDwellTier23Sec), all.nTier23 + ' reviews this week, all teams') +
       tile('Re-key slip rate', U.fmtPctPlain(all.mismatchRate), all.nSlips + ' slips and ' + all.nCatches + ' catches in ' + all.nRekeys + ' blind re-keys') +
@@ -75,7 +75,7 @@
       tile('Highest R-08 score', worst ? String(worst.score) : 'n/a', worst ? worst.team : '', worst ? worst.rag : null) +
       '</div>' +
       '<div class="grid-2">' +
-      '<div class="card"><div class="card-head"><h2>R-08 rubber-stamp score by team</h2><span class="muted small">Weekly, 0 to 100. Amber at 25, red at 50.</span></div>' +
+      '<div class="card"><div class="card-head"><h2>R-08 rubber-stamp score by team</h2><span class="muted small">Scored weekly, 0 to 100. Amber at 25, red at 50.</span></div>' +
       C.legend(series.map(function (s) { return { name: s.name, color: s.color }; }), 'line') +
       C.lineChart({ labels: labels, series: series, yMax: 100, yTicks: [0, 25, 50, 75, 100], bands: [{ from: 25, to: 50, color: C.STATUS.warning, label: 'Amber 25' }, { from: 50, to: 100, color: C.STATUS.critical, label: 'Red 50' }], ariaLabel: 'R-08 score by team over eight weeks' }) +
       '</div>' +

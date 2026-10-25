@@ -24,8 +24,8 @@
       { id: 'U-AP2', name: 'Marco O.', employer: 'Citi', inHouse: true, team: 'Citi Approvers NY', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: -24 }] },
       { id: 'U-AP3', name: 'Tom W.', employer: 'Citi', inHouse: true, team: 'Citi Approvers DE', title: 'Assistant manager, loan operations', roles: ['approver'], reportsTo: 'U-AP1', approvalLimit: 50000000, certs: [] },
       { id: 'U-AP4', name: 'Grace T.', employer: 'Citi', inHouse: true, team: 'Citi Approvers TPA', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: 19 }] },
-      { id: 'U-OR1', name: 'Rana H.', employer: 'Citi', inHouse: true, team: 'Citi Operational Risk', title: 'Operational Risk (2nd line)', roles: ['oprisk'], reportsTo: null, approvalLimit: 0, certs: [] },
-      { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations (1st line owner)', roles: ['owner'], reportsTo: null, approvalLimit: 0, certs: [] },
+      { id: 'U-OR1', name: 'Rana H.', employer: 'Citi', inHouse: true, team: 'Citi Operational Risk', title: 'Operational Risk, second line', roles: ['oprisk'], reportsTo: null, approvalLimit: 0, certs: [] },
+      { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations, first line owner', roles: ['owner'], reportsTo: null, approvalLimit: 0, certs: [] },
       { id: 'U-TEC', name: 'Evan L.', employer: 'Citi', inHouse: true, team: 'Citi Technology', title: 'Tech lead, payments platform', roles: ['tech'], reportsTo: null, approvalLimit: 0, certs: [] }
     ],
 
@@ -34,7 +34,7 @@
       { id: 'maker', label: 'Maker (Wipro ops)', userId: 'U-MK1' },
       { id: 'checker', label: 'Checker (Wipro ops)', userId: 'U-CK1' },
       { id: 'approver', label: 'Approver (Citi, in-house)', userId: 'U-AP1' },
-      { id: 'oprisk', label: 'Operational Risk (2nd line)', userId: 'U-OR1' },
+      { id: 'oprisk', label: 'Operational Risk (second line)', userId: 'U-OR1' },
       { id: 'owner', label: 'Head of Loan Ops (register owner)', userId: 'U-HLO' }
     ],
 

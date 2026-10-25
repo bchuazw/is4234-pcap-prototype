@@ -13,6 +13,11 @@
       var t = 'dark';
       try { var s = window.localStorage.getItem('pcap-theme'); if (s === 'light' || s === 'dark') t = s; } catch (e) {}
       document.documentElement.setAttribute('data-theme', t);
+      /* Fonts are local and small: hold the first paint until they are in, so nothing re-flows. Capped at 600 ms. */
+      document.documentElement.setAttribute('data-fonts', 'loading');
+      var show = function () { document.documentElement.removeAttribute('data-fonts'); };
+      window.__pcapFontsShow = show;
+      setTimeout(show, 600);
     })();
     /* Catch any script error early, show it, and expose it for automated checks. */
     window.__pcapErrors = [];

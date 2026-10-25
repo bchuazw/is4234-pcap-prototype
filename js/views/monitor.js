@@ -47,7 +47,7 @@
       '<h3>Recent runs</h3>' +
       (runs.length ? '<table class="table"><thead><tr><th>Date</th><th>Time</th><th>Run by</th><th>Independent</th><th class="num">Payments</th><th class="num">Breaks</th></tr></thead><tbody>' +
         runs.map(function (r) { return '<tr><td>' + U.esc(U.fmtDate(r.date)) + '</td><td>' + U.esc(r.time) + '</td><td>' + U.esc(store.userName(r.by)) + '</td><td>' + (r.independent ? U.ragChip('green', 'Yes') : U.ragChip('red', 'No')) + '</td><td class="num">' + r.rows + '</td><td class="num">' + (r.breaks ? '<strong>' + r.breaks + '</strong> (' + U.esc(U.fmtUSD(r.breakTotal)) + ')' : '0') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="empty">No runs yet.</p>') +
-      '<p class="muted small">At Citibank the checker ran this kind of reconciliation himself, the next morning. Here it runs the same day, by someone independent of the maker, against the expected amount.</p></div>';
+      '<p class="muted small">At Citibank the error only surfaced at the cash-break review the next morning. Here the reconciliation runs the same day, by someone independent of the maker, against the expected amount.</p></div>';
 
     var approvers = st().ctx.users.filter(function (u) { return (u.roles || []).indexOf('approver') >= 0; });
     var certs = '<div class="card" id="cert-table"><div class="card-head"><h2>Approver certifications and entitlements</h2><span class="muted small">Certification per override type, approval limit by consequence</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Approver</th><th>Employer and team</th><th class="num">Approval limit</th><th>Certification</th><th>Valid until</th><th>Status</th></tr></thead><tbody>' +

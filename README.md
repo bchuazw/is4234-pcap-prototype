@@ -4,6 +4,26 @@ Working prototype for the NUS IS4234 Group 4 report "Approved but Not Understood
 
 **Synthetic data only.** No real people, accounts or payments. The Revlon replay is a simplified synthetic rebuild of a public court case.
 
+## For teammates
+
+**Look at this first (10 minutes).** Open https://bchuazw.github.io/is4234-pcap-prototype/ and press **Start the demo with the Revlon replay** on the How to demo screen. Follow the "Switch to ..." buttons through Maker, Checker, Approver and Op Risk (steps 1 to 4 of the demo path). Then open **Synthetic test** and press **Run seeds 1 to 50**. That is the whole case for the report in about ten clicks: the pre-release statement, the blind re-key, the Tier 3 hard stop, and the numbers in 5.8.
+
+**Feedback wanted.**
+- Does the consequence card say what the Revlon payment would do in words a non-technical marker understands?
+- Is any screen or button confusing without Brian explaining it? Note the screen and what you expected.
+- Anything that disagrees with your section of the report (module names, rule names, thresholds, Table 4 rows, cadence).
+- Spot checks on the light theme on a projector, and on a phone.
+
+**Keith, please confirm against 5.1 to 5.5** (the app and 5.6 to 5.9 assume these):
+- Prevent = M2 and M3, Detect = M4 and M5, Govern = M1 and M6.
+- Rule IDs and names R-01 Variance, R-02 Unscheduled principal, R-03 Unregistered workaround, R-04 Incomplete workaround, R-05 Certification, R-06 Independence, R-07 Active confirmation, R-08 Rubber-stamp score, R-09 Control health.
+- R-01 tolerance is the larger of USD 500 or 0.1%, and Tier 3 starts above 10% or USD 5 million.
+- Any payment using a valid registered override is at least Tier 2, and R-07 (blind re-key, two attempts) applies at Tiers 2 and 3 only.
+- R-08 weights 40, 30, 30 with amber at 25 and red at 50. The score is per team per week and goes into the monthly second-line report (daily, monthly and quarterly cadence as in 5.5).
+- Tier 1 routine, Tier 2 elevated, Tier 3 critical with hard stop and second-line (Operational Risk) release.
+
+**Yong Kang**: the app tags events to Table 4 rows O1 to O7 in this order: delegation of authority, segregation of duties, competency and training, manuals and MIS, outsourcing accountability, legacy system limitation, sustained effectiveness. If Table 4 ends up with different rows or order, tell Brian and the tags change in `data/seed-data.js`.
+
 ## What PCAP is
 
 PCAP is an overlay on a bank's core payment system, not a replacement. Before a payment is released, it states in plain words how much money will leave the bank, where it goes and whether it is interest or principal, and it checks that against the loan schedule. It only lets certified, independent, in-house approvers release override payments, makes them re-key the amount blind, holds critical payments for Operational Risk, and tags every control event to the obligation it evidences.
@@ -14,7 +34,8 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 - **Online:** https://bchuazw.github.io/is4234-pcap-prototype/
 - On the payment desk, use **Acting as** to switch between Maker, Checker, Approver and Op Risk. On the other screens the **Acting as** menu at the top also has Head of Loan Ops (register owner). When a payment waits for another role, the desk shows a "Switch to ..." button.
 - Everything you do is kept in this browser only (localStorage). **Reset demo data** restores the starting point. If the browser blocks storage, the app still works and shows a notice that changes last until reload.
-- The app opens in a dark theme. The **Light** button in the header switches to a light theme for projectors, and the choice is remembered in this browser (if storage is blocked it lasts until reload).
+- The app opens in a dark theme. The **Light** button in the header switches to a light theme for projectors, and the choice is remembered in this browser (if storage is blocked it lasts until reload). Reset demo data does not change the theme.
+- Dates are shown as "11 Aug 2020" and large amounts as "USD 7.8M" in lists, with full figures on the consequence card and in the event log.
 
 ## Folder layout
 
@@ -52,7 +73,7 @@ PCAP is an overlay on a bank's core payment system, not a replacement. Before a 
 | R-05 Certification | M3 | Approver holds a current certification for the override type and an approval limit at least equal to the computed outgoing amount. | M3 gate closes, blocked attempt logged, reassign | Payment desk |
 | R-06 Independence | M3 | Approver is not the maker or checker, not in their team or reporting line, and in-house (Citi) for override payments. | M3 gate closes, blocked attempt logged, reassign | Payment desk |
 | R-07 Active confirmation | M2 | At Tier 2 and 3 the approver re-keys the outgoing amount without seeing the maker's figure or the checker's note. | First mismatch: re-check. Second mismatch: Tier 3. | Payment desk (Approver) |
-| R-08 Rubber-stamp score | M4 | Weekly team score from 0 to 100: fast looks at the consequence screen (40), re-key slips (30), Tier 2 approvals within 5 seconds of the warning (30). | Amber at 25, red at 50. Never blocks a payment. | Behaviour analytics |
+| R-08 Rubber-stamp score | M4 | Team score from 0 to 100, scored weekly and reported monthly: fast looks at the consequence screen (40), re-key slips (30), Tier 2 approvals within 5 seconds of the warning (30). | Amber at 25, red at 50. Never blocks a payment. | Behaviour analytics |
 | R-09 Control health | M5 | Same-day independent reconciliation, register reviews, dispensations, certifications, hard-stop queue and the replay regression test. | Red, amber or green per control, fed to M6 | Control monitor |
 
 **Tiers.** Tier 1 routine: the approver reads the consequence statement and releases. Tier 2 elevated: blind re-key plus an explicit confirmation. Tier 3 critical: hard stop that only Operational Risk can release, with a recorded reason. Any payment using a valid registered override is at least Tier 2.
@@ -67,7 +88,7 @@ Payments are treated like flights that need clearance before take-off, which kee
 - **Lifecycle as a clearance track.** The maker, checker, approver, Op Risk and release steps fill in as the payment moves on, and the track turns red for a ground stop and green when the payment is cleared and released.
 - **Tier 3 as a ground stop.** The hard stop banner has a striped barrier edge and says "Ground stop: only Operational Risk can clear this payment for release". The official terms (Tier 1 to 3, M1 to M6, R-01 to R-09, maker, checker, approver) stay as they are in the report.
 - **Motion with a purpose.** Screens fade and rise in, amounts on the consequence card count up while the schedule and payment bars grow, then the "115 times" line appears. Failed checks appear first. A blind re-key mismatch shakes the amount box, and a match glows green. Board KPIs count up and charts draw in once. Animations last about 150 to 400 ms (counting and drawing up to about 0.9 s) and are switched off when the computer is set to reduce motion.
-- **Fonts.** Space Grotesk for headings and numbers, IBM Plex Sans for text and JetBrains Mono for IDs, account legs and rule IDs. All three are under the SIL Open Font License 1.1 (licence texts in `fonts/`).
+- **Fonts.** Space Grotesk for headings and numbers, IBM Plex Sans for text and JetBrains Mono for IDs, account legs and rule IDs. All three are under the SIL Open Font License 1.1 (licence texts in `fonts/`). They are loaded with `font-display: block`, so there is no flash of fallback text on first paint.
 
 ## Five minute demo script (for the video)
 
@@ -92,7 +113,7 @@ From this folder, with Node 18 or later (built and run on Node 25):
 node --test
 ```
 
-There are 26 tests in `tests/engine.test.js` and `tests/flow.test.js`. They check that:
+There are 26 tests in `tests/engine.test.js` and `tests/flow.test.js` (all passing, last run 25 Oct 2026). They check that:
 
 - the Revlon replay is held at Tier 3 with R-01, R-02 and R-04 firing, and the statement shows the principal amount
 - a normal scheduled interest payment releases at Tier 1, and a correct WA-01 roll-up is Tier 2 with the principal kept inside the bank
@@ -101,7 +122,7 @@ There are 26 tests in `tests/engine.test.js` and `tests/flow.test.js`. They chec
 - the synthetic test is deterministic for a fixed seed, and across seeds every Tier 3 and gate error is stopped
 - the payment desk actions log every step with module, rule and obligation tags, a release by Operational Risk shows up as a reconciliation break, and a maker cannot run an independent reconciliation
 
-The browser screens were also checked in headless Microsoft Edge at 1400, 1024 and 390 px width, in both the dark and light themes: the full payment desk flow ran through every role with no JavaScript errors and no sideways scrolling, every step wrote the same event log entries as before the redesign, the app still works when browser storage is blocked, and it works with reduced motion switched on.
+The browser screens were also checked in headless Microsoft Edge at 1400, 1024 and 390 px width, in both the dark and light themes: the full payment desk flow ran through every role with no JavaScript errors and no sideways scrolling, every step wrote the same event log entries as before the redesign, the app still works when browser storage is blocked, and it works with reduced motion switched on. The last review also checked the keyboard tab order on every screen, that the theme and the open payment survive a reload (including a reload halfway through the approver's blind re-key, where the attempt count and the time on screen carry on), Reset demo data, the evidence pack download (JSON and CSV), the seed run and the 50-seed sweep (about 2 s, run in small chunks with progress on the button so the page never freezes), the register add, review and retire actions, the History and Event log filters, the dialogs and toasts, fonts loaded before first paint, and no layout shift on load.
 
 ## Synthetic test results
 
@@ -142,7 +163,7 @@ These fill gaps where the report drafts do not yet fix the behaviour. They are e
 - R-05 includes a consequence-based approval limit as well as certification per override type, because Table 4 row 1 calls for consequence-based entitlements. The limit is checked against the amount PCAP computes, not the amount keyed.
 - Any payment using a valid registered override is at least Tier 2.
 - R-07 applies only at Tiers 2 and 3, so Tier 1 keeps the current flow. The approver gets two attempts. Only "slips" (the approver's own first figure was wrong) count against them in R-08. A mismatch that ends in escalation counts as a catch.
-- R-01 tolerance is the larger of USD 500 or 0.1%. Tier 3 starts above 10% or USD 5 million. The R-08 weights (40, 30, 30) and thresholds (25, 50) are illustrative.
+- R-01 tolerance is the larger of USD 500 or 0.1%. Tier 3 starts above 10% or USD 5 million. The R-08 weights (40, 30, 30) and thresholds (25, 50) are illustrative. R-08 is scored per team per week and reported in the monthly second-line report, so the app's reporting cadence stays daily, monthly and quarterly as in report 5.5.
 - In the replay, the loan schedule holds the USD 7,820,000 of interest as an off-cycle roll-up payment notified to lenders, so R-01 has an expected amount to compare against. The 315 lenders and exact amounts are synthetic.
 - Table 4 does not name M4, so R-08 events are tagged to rows 2 and 5.
 - A fifth role, Head of Loan Ops, is added so register reviews are owner attestations rather than something any user can do.

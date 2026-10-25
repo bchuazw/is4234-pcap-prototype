@@ -148,10 +148,24 @@
     el.onclick = function (e) {
       var sw = e.target.closest('[data-act="sweep"]');
       if (sw) {
+        if (sw.disabled) return;
+        /* A few seeds per task, so the page keeps painting and the button shows progress. */
         var t1 = performance.now();
-        sweep = E.runSeedSweep({ from: 1, to: 50, n: params.n, errorRate: params.errorPct / 100, staleRate: params.stalePct / 100 });
-        U.toast('Ran 50 seeds in ' + Math.round(performance.now() - t1) + ' ms.', 'ok');
-        PCAP.app.render();
+        var run = E.createSeedSweep({ from: 1, to: 50, n: params.n, errorRate: params.errorPct / 100, staleRate: params.stalePct / 100 });
+        sw.disabled = true;
+        var chunk = function () {
+          var t2 = performance.now();
+          while (!run.done() && performance.now() - t2 < 40) run.step();
+          if (!run.done()) {
+            sw.textContent = 'Running seed ' + run.seed() + ' of ' + run.to;
+            setTimeout(chunk, 0);
+            return;
+          }
+          sweep = run.finish();
+          U.toast('Ran ' + sweep.seeds + ' seeds in ' + Math.round(performance.now() - t1) + ' ms.', 'ok');
+          PCAP.app.render();
+        };
+        setTimeout(chunk, 0);
         return;
       }
       var b = e.target.closest('[data-act="download"]');

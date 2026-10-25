@@ -63,7 +63,7 @@
     M6: { id: 'M6', name: 'Obligation Map and Oversight Dashboard', short: 'Obligation Map', group: 'Govern' }
   };
 
-  /* Table 6 of the report: rule names follow the template exactly. */
+  /* Table 6 of the report: rule IDs and names follow the report. */
   var RULES = {
     'R-01': { id: 'R-01', name: 'Variance', module: 'M2', obligations: ['O2'], screen: 'Payment desk',
       logic: 'Compares the amount PCAP computes will leave the bank with the amount the loan schedule expects on the value date, less anything already paid. Tolerance is the larger of USD 500 or 0.1% of the expected amount.',
@@ -88,7 +88,7 @@
       action: 'First mismatch: re-check prompt, logged. Second mismatch: Tier 3 hard stop.' },
     'R-08': { id: 'R-08', name: 'Rubber-stamp score', module: 'M4', obligations: ['O2', 'O5'], screen: 'M4 analytics',
       logic: 'Weekly team score from 0 to 100. 40 points for fast looks at the consequence screen (under 8 seconds at Tier 2 and 3), 30 for re-key slips (the approver\'s own first figure was wrong, a 20% slip rate scores all 30), 30 for Tier 2 approvals within 5 seconds of the warning. Mismatches that end in an escalation count as catches, not slips.',
-      action: 'Amber at 25, red at 50: second-line review of that team. Never blocks a payment. Team level by default.' },
+      action: 'Amber at 25, red at 50: second-line review of that team in the monthly report. Never blocks a payment. Team level by default.' },
     'R-09': { id: 'R-09', name: 'Control health', module: 'M5', obligations: ['O7', 'O6'], screen: 'M5 control monitor',
       logic: 'Checks that compensating controls ran: same-day independent reconciliation, register reviews and dispensations in date, approver certifications current, hard-stop queue cleared, replay regression test passing.',
       action: 'Red or amber status alerts the control owner and feeds the M6 KRIs.' }
@@ -100,7 +100,7 @@
   var TIERS = {
     1: { id: 1, name: 'Tier 1', label: 'Routine', action: 'Normal release after the approver reads the consequence statement.' },
     2: { id: 2, name: 'Tier 2', label: 'Elevated', action: 'Extra confirmation: blind re-key of the amount, then an explicit confirmation of the consequence statement.' },
-    3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. Only Operational Risk (2nd line) can release, with a recorded reason.' }
+    3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. Only Operational Risk (second line) can release, with a recorded reason.' }
   };
 
   /* ------------------------------------------------------------------ */
@@ -1251,15 +1251,18 @@
     };
   }
 
-  /* Run many seeds and pool the results, to show how much one seed's numbers depend on the draw. */
-  function runSeedSweep(opts) {
+  /* A seed sweep that can be run one seed at a time (the browser runs it in small chunks so the page stays responsive). */
+  function createSeedSweep(opts) {
     opts = opts || {};
     var from = opts.from == null ? 1 : opts.from;
     var to = opts.to == null ? 50 : opts.to;
     var agg = { from: from, to: to, seeds: 0, errors: 0, stopped: 0, foundAfter: 0, missed: 0, clean: 0, falseAlarms: 0, falseAlarmsHeld: 0, replayFails: 0, classes: {}, rates: [] };
     Object.keys(ERROR_CLASSES).forEach(function (k) { agg.classes[k] = { label: ERROR_CLASSES[k].label, count: 0, stopped: 0, foundAfter: 0 }; });
-    for (var seed = from; seed <= to; seed++) {
-      var r = runSyntheticTest({ seed: seed, n: opts.n, errorRate: opts.errorRate, staleRate: opts.staleRate, config: opts.config });
+    var next = from;
+    function step() {
+      if (next > to) return false;
+      var r = runSyntheticTest({ seed: next, n: opts.n, errorRate: opts.errorRate, staleRate: opts.staleRate, config: opts.config });
+      next += 1;
       var s = r.summary;
       agg.seeds += 1;
       agg.errors += s.errorCount;
@@ -1272,14 +1275,25 @@
       if (!r.replay.pass) agg.replayFails += 1;
       r.byClass.forEach(function (c) { var a = agg.classes[c.cls]; a.count += c.count; a.stopped += c.stopped; a.foundAfter += c.foundAfter; });
       agg.rates.push(s.detection.rateBeforeRelease);
+      return next <= to;
     }
-    var sorted = agg.rates.slice().sort(function (a, b) { return a - b; });
-    agg.rateMin = sorted[0];
-    agg.rateMax = sorted[sorted.length - 1];
-    agg.rateMedian = median(sorted);
-    agg.ratePooled = agg.errors ? agg.stopped / agg.errors : null;
-    agg.falseAlarmRate = agg.clean ? agg.falseAlarms / agg.clean : null;
-    return agg;
+    function finish() {
+      var sorted = agg.rates.slice().sort(function (a, b) { return a - b; });
+      agg.rateMin = sorted[0];
+      agg.rateMax = sorted[sorted.length - 1];
+      agg.rateMedian = median(sorted);
+      agg.ratePooled = agg.errors ? agg.stopped / agg.errors : null;
+      agg.falseAlarmRate = agg.clean ? agg.falseAlarms / agg.clean : null;
+      return agg;
+    }
+    return { step: step, finish: finish, done: function () { return next > to; }, seed: function () { return next; }, from: from, to: to };
+  }
+
+  /* Run many seeds and pool the results, to show how much one seed's numbers depend on the draw. */
+  function runSeedSweep(opts) {
+    var sw = createSeedSweep(opts);
+    while (sw.step()) { /* run every seed */ }
+    return sw.finish();
   }
 
   /* ------------------------------------------------------------------ */
@@ -1341,6 +1355,7 @@
     // synthetic test
     generateSyntheticBatch: generateSyntheticBatch,
     runSyntheticTest: runSyntheticTest,
+    createSeedSweep: createSeedSweep,
     runSeedSweep: runSeedSweep
   };
 });

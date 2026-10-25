@@ -70,7 +70,7 @@
       tile('Active workarounds', String(active.length), reg.filter(function (r) { return r.status === 'Proposed'; }).length + ' proposed, ' + reg.filter(function (r) { return r.status === 'Retired'; }).length + ' retired') +
       tile('Reviews overdue', String(overdue.length), overdue.map(function (r) { return r.id; }).join(', ') || 'None', overdue.length ? 'amber' : 'green') +
       tile('Dispensations expiring or expired', String(expiring.length), expiring.map(function (r) { return r.id; }).join(', ') || 'None within 30 days', expiring.length ? 'amber' : 'green') +
-      tile('Override use mapped to the register', mining.share == null ? 'n/a' : U.fmtPctPlain(mining.share, 0), mining.mapped + ' of ' + mining.total + ' uses. Evidence for obligation row 4.', mining.share == null || mining.share === 1 ? 'green' : 'amber') +
+      tile('Override use mapped to the register', mining.share == null ? 'n/a' : U.fmtPctPlain(mining.share, 0), mining.mapped + ' of ' + mining.total + ' uses. Evidence for obligation row O4.', mining.share == null || mining.share === 1 ? 'green' : 'amber') +
       '</div>';
 
     var table = '<div class="card"><div class="card-head"><h2>Register</h2><span class="muted small">' + (isOwner ? 'You are the owner: you can review, approve and retire entries.' : 'Switch role to Head of Loan Ops to review, approve or retire entries.') + '</span></div>' +

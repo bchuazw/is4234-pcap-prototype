@@ -15,7 +15,7 @@
     { n: 3, role: 'approver', route: 'desk', title: 'Approver re-keys blind, then reads the consequence',
       text: 'Click Switch to Approver. The amounts are hidden. Open your source (the agent notice), type 7,820,000 and click Check amount. It does not match, so type it again. R-07 escalates, the consequence card appears, and the payment is a Tier 3 hard stop. Send it to Operational Risk.' },
     { n: 4, role: 'oprisk', route: 'desk', title: 'Operational Risk decides, with a reason',
-      text: 'Click Switch to Op Risk. Only the second line can release a Tier 3 payment. Write a reason and click Reject and return to maker. Every step is now in the event log.' },
+      text: 'Click Switch to Op Risk. Only the second line can release a Tier 3 payment. Write a reason and click Reject and return to maker (or release it with a reason, which M5 then catches as a reconciliation break). Every step is now in the event log.' },
     { n: 5, role: 'maker', route: 'desk', title: 'Optional: the maker fixes it',
       text: 'The returned payment waits for the maker. Click Edit and resubmit, set FRONT and FUND to the wash account, review and resubmit. Now it is Tier 2: only USD 7.8M of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000, confirm and release.' },
     { n: 6, role: 'maker', route: 'desk', preset: 'clean', title: 'Contrast: a clean payment at Tier 1',
@@ -69,7 +69,7 @@
       }).join('') + '</div>' +
       '<p class="flow">' + ['Instruction', 'M1 register check', 'M3 authority gate', 'M2 consequence engine', 'Tiered approval and blind re-key', 'Release or hard stop', 'Events to M4, M5, M6'].map(function (x) { return '<span>' + U.esc(x) + '</span>'; }).join(U.icon('arrow')) + '</p></div>' +
 
-      '<div class="card"><div class="card-head"><h2>Control rules R-01 to R-09</h2><span class="muted small">Names follow Table 6 of the report template</span></div><div class="table-wrap"><table class="table rules"><thead><tr><th>Rule</th><th>Module</th><th>Logic</th><th>Action</th><th>Obligations</th><th>Where to see it</th></tr></thead><tbody>' +
+      '<div class="card"><div class="card-head"><h2>Control rules R-01 to R-09</h2><span class="muted small">Rule IDs, names and thresholds follow Table 6 of the report</span></div><div class="table-wrap"><table class="table rules"><thead><tr><th>Rule</th><th>Module</th><th>Logic</th><th>Action</th><th>Obligations</th><th>Where to see it</th></tr></thead><tbody>' +
       rules.map(function (r) {
         return '<tr><td><strong>' + U.esc(r.id) + '</strong> ' + U.esc(r.name) + '</td><td>' + U.moduleChip(r.module) + '</td><td>' + U.esc(r.logic) + '</td><td>' + U.esc(r.action) + '</td><td>' + r.obligations.map(U.obligationChip).join(' ') + '</td><td>' + U.esc(r.screen) + '</td></tr>';
       }).join('') + '</tbody></table></div></div>' +
@@ -79,7 +79,10 @@
       '</div><p class="muted small">Any payment using a valid registered override is at least Tier 2. R-05 and R-06 failures close the M3 gate for that approver whatever the tier.</p></div>' +
 
       '<div class="card notes"><h2>Good to know</h2><ul>' +
-      '<li>No login. On the payment desk, use <strong>Acting as</strong> to switch between Maker, Checker, Approver and Op Risk. On other screens use the <strong>Acting as</strong> menu at the top, which also has Head of Loan Ops.</li>' +
+      '<li>Before you record or present, press <strong>Reset demo data</strong> so the queue is at its starting point. If a screen ever looks wrong, Reset fixes it.</li>' +
+      '<li>No login. On the payment desk, use <strong>Acting as</strong> to switch between Maker, Checker, Approver and Op Risk. On other screens use the <strong>Acting as</strong> menu at the top, which also has Head of Loan Ops. When a payment waits for another role, the desk shows a <strong>Switch to ...</strong> button.</li>' +
+      '<li>The <strong>Light</strong> button in the header is for projectors. The choice is remembered in this browser.</li>' +
+      '<li>The evidence pack and the synthetic test results download as files (JSON and CSV) to your usual downloads folder.</li>' +
       '<li>All data is synthetic and stays in this browser (localStorage). <strong>Reset demo data</strong> restores the starting point.</li>' +
       '<li>The prototype is not connected to any core banking system. The Flexcube-style screen is a simulation.</li>' +
       '<li>Rule logic lives in one file, <span class="mono">js/engine.js</span>, which also runs the Node unit tests.</li></ul></div>';

@@ -16,7 +16,12 @@
   var E = PCAP.engine, U = PCAP.util, store = PCAP.store;
   var views = PCAP.views = PCAP.views || {};
 
-  var revealPerf = {};   /* approver: when the consequence was revealed (M4 time on screen) */
+  /* Approver time on the consequence screen (M4) counts from the logged reveal time, so it survives a reload. */
+  function dwellSec(p) {
+    var a = p && p.approval && p.approval.version === p.version ? p.approval : null;
+    if (!a || !a.revealedAt) return 0;
+    return Math.max(0, (store.now().getTime() - new Date(a.revealedAt).getTime()) / 1000);
+  }
   var oprPerf = {};      /* Operational Risk: when the hold was opened (decide time) */
   var noteDrafts = {};   /* unsent notes, kept across re-renders */
   var focusAfter = null; /* selector to focus after the next render */
@@ -680,7 +685,7 @@
     var fails = ['R-05', 'R-06'].filter(function (k) { return ev.results[k].status === 'fire'; });
     return '<section class="card gate-closed" aria-label="M3 gate closed"><div class="gc-head">' + U.icon('lock') + '<h3>M3 gate closed. ' + esc(name(p.approverId)) + ' cannot approve this payment.</h3></div>' +
       '<ul class="gc-list">' + fails.map(function (k) { return '<li><span>' + esc(ev.results[k].message) + '</span><span class="chk-id">' + k + '</span></li>'; }).join('') + '</ul>' +
-      '<p class="hint">This attempt is logged as a blocked attempt (evidence for obligation rows 1, 3 and 5). Return it so the maker can route it to a certified, independent, in-house approver.</p>' +
+      '<p class="hint">This attempt is logged as a blocked attempt (evidence for obligation rows O1, O3 and O5). Return it so the maker can route it to a certified, independent, in-house approver.</p>' +
       '<div class="act-buttons row"><button type="button" class="btn primary" data-action="return-gate" data-id="' + p.id + '">Return to maker for reassignment</button></div></section>';
   }
 
@@ -728,7 +733,6 @@
         /* Statement revealed: Tier 1 straight away, Tier 2 and 3 after the blind re-key. */
         store.approverReveal(p.id);
         m = liveModel(store.currentEval(p), p.instr);
-        if (!revealPerf[p.id]) revealPerf[p.id] = performance.now();
         var a = p.approval || { attempts: [] };
         body = gateLine(m) + (ev0.tier >= 2 || a.attempts.length ? rekeyResultLine(p) : '') + decisionBanner(m) +
           grid(consequenceCard(m, { rekey: a.attempts, eyebrow: ev0.tier >= 2 || a.attempts.length ? 'Step 2 of 2: what this payment will do' : null }), approverPanel(p, m),
@@ -991,7 +995,7 @@
   /* ------------------------------------------------------------ desk header */
 
   function whoLine(role) {
-    if (role === 'approver') return ico('user') + '<span><strong>Assigned approver</strong>, Citi, in-house. You act as whoever the maker assigned.</span>';
+    if (role === 'approver') return ico('user') + '<span><strong>Assigned approver</strong>. You act as whoever the maker named as approver on each payment.</span>';
     var u = userOf(store.roleUserId(role));
     if (!u) return '';
     return ico('user') + '<span><strong>' + esc(u.name) + '</strong>, ' + esc(u.title) + ', ' + esc(u.employer) + (role === 'owner' ? '. Payments are read-only for you.' : '') + '</span>';
@@ -1076,7 +1080,8 @@
     var id = span.getAttribute('data-id');
     var tick = function () {
       var s = document.getElementById('dwell');
-      if (s && revealPerf[id]) s.textContent = Math.floor((performance.now() - revealPerf[id]) / 1000) + ' s';
+      var p = store.payment(id);
+      if (s && p) s.textContent = Math.floor(dwellSec(p)) + ' s';
     };
     tick();
     PCAP.app.addTimer(setInterval(tick, 500));
@@ -1323,14 +1328,14 @@
       var ev = store.currentEval(store.payment(id));
       var box = document.getElementById('confirm-box');
       if (ev.tier === 2 && (!box || !box.checked)) { U.toast('Tick the Tier 2 confirmation first.', 'bad'); if (box) box.focus(); return; }
-      var dwell = revealPerf[id] ? (performance.now() - revealPerf[id]) / 1000 : 0;
+      var dwell = dwellSec(store.payment(id));
       store.approverApprove(id, { dwellSec: dwell, confirmed: !!(box && box.checked) });
       U.toast(id + ' released at Tier ' + ev.tier + '. ' + shortAmt(ev.consequence.externalTotal) + ' left the bank.', 'ok');
       PCAP.app.render();
       scrollToDetail();
     },
     escalate: function (btn, id) {
-      var dwell = revealPerf[id] ? (performance.now() - revealPerf[id]) / 1000 : 0;
+      var dwell = dwellSec(store.payment(id));
       var note = (document.getElementById('approver-note') || {}).value || '';
       store.approverEscalate(id, { dwellSec: dwell, note: note.trim() });
       delete noteDrafts[id + ':approver-note'];

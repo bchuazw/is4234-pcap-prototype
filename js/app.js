@@ -189,6 +189,9 @@
     });
     root.addEventListener('hashchange', render);
     render();
+    /* First screen is built: show the page as soon as its fonts are loaded (the inline script caps the wait). */
+    var show = root.__pcapFontsShow || function () { document.documentElement.removeAttribute('data-fonts'); };
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(show, show); else show();
     document.body.setAttribute('data-ready', '1');
   }
 

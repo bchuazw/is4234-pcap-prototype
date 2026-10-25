@@ -116,7 +116,7 @@
   }
 
   var STATUS_LABEL = {
-    SUBMITTED: 'Waiting for checker', CHECKED: 'Waiting for approver', HELD: 'Tier 3 hold (Op Risk)',
+    SUBMITTED: 'Waiting for checker', CHECKED: 'Waiting for approver', HELD: 'Held for Operational Risk',
     RELEASED: 'Released', RETURNED: 'Returned to maker', REJECTED: 'Rejected', CANCELLED: 'Cancelled'
   };
   var STATUS_CLASS = { SUBMITTED: 'st-wait', CHECKED: 'st-wait', HELD: 'st-hold', RELEASED: 'st-done', RETURNED: 'st-ret', REJECTED: 'st-rej', CANCELLED: 'st-rej' };

@@ -150,7 +150,7 @@
         var o = r.o;
         return '<tr><td>' + U.obligationChip(o.id) + '</td><td><strong>' + U.esc(o.source) + '</strong><div class="small muted">' + U.esc(o.topic) + '</div></td><td>' + U.esc(o.risk) + '</td><td>' + U.esc(o.control) + '<div>' + o.modules.map(function (m) { return U.moduleChip(m); }).join(' ') + '</div></td><td>' + o.rules.map(function (x) { return U.ruleChip(x); }).join(' ') + '</td><td>' + U.esc(o.evidence) + '</td><td class="small">' + U.esc(r.live.text) + '</td><td>' + U.ragChip(r.live.rag) + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
-      '<p class="muted small">Table 4 does not name M4. The prototype maps M4\'s R-08 to rows 2 (re-key mismatch rate) and 5 (monitoring of outsourced staff).</p></div>' +
+      '<p class="muted small">Table 4 does not name M4. The prototype maps M4\'s R-08 to rows O2 (re-key mismatch rate) and O5 (monitoring of outsourced staff).</p></div>' +
 
       '<div class="grid-2">' +
       '<div class="card"><div class="card-head"><h2>Evidence events by module</h2><span class="muted small">' + s.events.length + ' events in the log</span></div>' + C.hbars({ items: byModule, ariaLabel: 'Events by module', labelWidth: 190 }) + '</div>' +
@@ -164,9 +164,8 @@
       '<button class="btn small" data-act="export-json">JSON only</button><button class="btn small" data-act="export-csv">CSV only</button></div>' +
       '<p class="muted small">Downloads pcap-evidence-pack-' + s.businessDate + '.json and .csv. The export itself is logged.</p><pre id="export-preview" class="preview" hidden></pre></div>' +
       '<div class="card"><div class="card-head"><h2>Reporting cadence</h2></div><table class="table"><tbody>' +
-      '<tr><th>Daily</th><td>Same-day reconciliation, hard-stop queue cleared, control health (M5)</td></tr>' +
-      '<tr><th>Weekly</th><td>Team rubber-stamp scores and re-key slip rates to Operational Risk (M4)</td></tr>' +
-      '<tr><th>Monthly</th><td>Replay regression test, certification currency, register reviews due (M1, M5)</td></tr>' +
+      '<tr><th>Daily</th><td>Hold list, same-day reconciliation, hard-stop queue cleared, control health (M2, M5)</td></tr>' +
+      '<tr><th>Monthly</th><td>Second-line control report: team rubber-stamp scores and re-key slip rates (M4), replay regression test, certification currency, register reviews due (M1, M5)</td></tr>' +
       '<tr><th>Quarterly</th><td>Board KRI pack, threshold review against the false-alarm KRI, dispensation renewals (M6)</td></tr>' +
       '<tr><th>On request</th><td>Evidence pack for Internal Audit and regulators</td></tr></tbody></table></div>' +
       '</div>';
