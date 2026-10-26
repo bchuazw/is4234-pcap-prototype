@@ -5,19 +5,12 @@
 (function (root) {
   'use strict';
   var PCAP = root.PCAP = root.PCAP || {};
-  var E = PCAP.engine, U = PCAP.util, store = PCAP.store, charts = PCAP.charts, DATA = PCAP.data;
+  var E = PCAP.engine, U = PCAP.util, store = PCAP.store, charts = PCAP.charts, DATA = PCAP.data, P = PCAP.plain;
   PCAP.views = PCAP.views || {};
 
-  var ROUTES = [
-    { id: 'guide', label: 'How to demo', mods: [] },
-    { id: 'desk', label: 'Payment desk', mods: ['M2', 'M3'] },
-    { id: 'register', label: 'Register', mods: ['M1'] },
-    { id: 'analytics', label: 'Behaviour analytics', mods: ['M4'] },
-    { id: 'monitor', label: 'Control monitor', mods: ['M5'] },
-    { id: 'oversight', label: 'Obligations and Board', mods: ['M6'] },
-    { id: 'synthetic', label: 'Synthetic test', mods: [] },
-    { id: 'events', label: 'Event log', mods: [] }
-  ];
+  /* Tabs in plain words (js/plain.js). The About page is not a tab: Home and the footer link to it. */
+  var ROUTES = P.ROUTES;
+  function routeDef(id) { return ROUTES.filter(function (r) { return r.id === id; })[0] || P.PAGES[id] || null; }
 
   var timers = [];
   function addTimer(t) { timers.push(t); }
@@ -25,8 +18,9 @@
 
   function currentRoute() {
     var h = (root.location.hash || '').replace(/^#\/?/, '');
-    var id = h.split('?')[0] || 'guide';
-    return ROUTES.some(function (r) { return r.id === id; }) ? id : 'guide';
+    var id = h.split('?')[0] || 'home';
+    id = P.ALIASES[id] || id;
+    return routeDef(id) ? id : 'home';
   }
 
   function go(id) {
@@ -47,9 +41,9 @@
     document.getElementById('tabs').innerHTML = ROUTES.map(function (r) {
       var need = byRoute[r.id] || [];
       var n = need.reduce(function (s, i) { return s + i.count; }, 0);
-      var tip = [r.mods.length ? 'Modules ' + r.mods.join(' and ') : ''].concat(need.map(function (i) { return 'Needs you: ' + i.text; })).filter(Boolean).join('. ');
+      var tip = need.map(function (i) { return 'Needs you: ' + i.text; }).join('. ');
       return '<a href="#/' + r.id + '" class="tab' + (r.id === cur ? ' active' : '') + '"' + (r.id === cur ? ' aria-current="page"' : '') + (tip ? ' title="' + U.esc(tip) + '"' : '') + '>' +
-        '<span>' + U.esc(r.label) + '</span>' + (r.mods.length ? '<span class="tab-mods" aria-hidden="true">' + U.esc(r.mods.join(' ')) + '</span>' : '') +
+        '<span>' + U.esc(r.label) + '</span>' + (r.codes.length ? '<span class="tab-mods code-tag" aria-hidden="true">' + U.esc(r.codes.join(' ')) + '</span>' : '') +
         (n ? '<span class="tab-need"><span class="sr-only">, needs you: </span>' + n + '</span>' : '') + '</a>';
     }).join('');
   }
@@ -71,6 +65,32 @@
     btn.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
     btn.setAttribute('title', light ? 'Switch to the dark theme' : 'Switch to the light theme (for projectors)');
   }
+  /* "Show report codes": off by default, so the screens read in plain words. Remembered in this browser. */
+  function codesOn() { return document.documentElement.getAttribute('data-codes') === 'on'; }
+  function paintCodesButton() {
+    var btn = document.getElementById('codes-btn');
+    if (!btn) return;
+    var on = codesOn();
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('title', on ? 'Hide the report\'s module and rule codes' : 'Show the report\'s module and rule codes (M1 to M6, R-01 to R-09) as small tags');
+  }
+  function setCodes(on) {
+    document.documentElement.setAttribute('data-codes', on ? 'on' : 'off');
+    try { root.localStorage.setItem('pcap-codes', on ? 'on' : 'off'); } catch (e) { /* storage blocked: lasts until reload */ }
+    paintCodesButton();
+    /* Redraw so recorded text switches between plain words and codes. The tab indicator follows the new tab widths. */
+    if (!(PCAP.tour && PCAP.tour.state().on)) render();
+  }
+
+  /* One line at the top of each screen: what it is for and what to do now, for the role acting now. */
+  var ROLE_LINE = { desk: 1, register: 1, analytics: 1, monitor: 1, oversight: 1 };
+  PCAP.views.nowLine = function (route, role, c) {
+    var t = P.intro(route, role, c);
+    if (!t) return '';
+    var who = ROLE_LINE[route] ? '<span class="now-who">' + U.esc(P.roleName(role)) + '</span>' : '';
+    return '<p class="now-line">' + who + '<span class="now-text">' + U.esc(t) + '</span></p>';
+  };
+
   function setTheme(t) {
     var html = document.documentElement;
     var fade = !(PCAP.motion && PCAP.motion.reduced());
@@ -86,12 +106,13 @@
     var sel = document.getElementById('role-select');
     sel.innerHTML = DATA.roles.map(function (r) {
       var n = todoFor(r.id).total;
-      return '<option value="' + r.id + '"' + (r.id === st.role ? ' selected' : '') + '>' + U.esc(r.label + (n ? ', ' + n + ' need' + (n === 1 ? 's' : '') + ' you' : '')) + '</option>';
+      var pr = P.ROLES[r.id] || { name: r.label, who: '' };
+      return '<option value="' + r.id + '"' + (r.id === st.role ? ' selected' : '') + '>' + U.esc(pr.name + (n ? ', ' + n + ' need' + (n === 1 ? 's' : '') + ' you' : ', ' + pr.who)) + '</option>';
     }).join('');
     var u = store.user(store.roleUserId(st.role));
     var who = st.role === 'approver' ? 'Acts as each payment\'s assigned approver' : st.role === 'board' ? 'Board Risk Committee, read only' : u ? u.name + ', ' + u.title : '';
     document.getElementById('persona').textContent = who;
-    document.getElementById('bizdate').textContent = 'Business date ' + U.fmtDate(st.businessDate);
+    document.getElementById('bizdate').textContent = 'Demo date ' + U.fmtDate(st.businessDate);
   }
 
   function renderBanner() {
@@ -122,7 +143,7 @@
       main.innerHTML = '<div class="card"><h2>Something went wrong on this screen</h2><pre class="err">' + U.esc(err && err.stack || String(err)) + '</pre><p>Try <strong>Reset demo data</strong>.</p></div>';
       reportError(err);
     }
-    document.title = (ROUTES.filter(function (r) { return r.id === id; })[0] || {}).label + ' | PCAP Prototype';
+    document.title = (routeDef(id) || {}).label + ' | PCAP Prototype';
     if (PCAP.motion) PCAP.motion.after(id);
   }
 
@@ -146,9 +167,9 @@
     if (!evs.length) return '<p class="muted">No events yet.</p>';
     return '<ol class="timeline">' + evs.map(function (e) {
       return '<li class="tl-' + U.esc(e.result) + '"><div class="tl-head"><span class="tl-time">' + U.esc(U.fmtShortDateTime(e.ts)) + '</span>' +
-        '<span class="tl-type">' + U.esc(e.type.replace(/_/g, ' ').toLowerCase()) + '</span>' +
+        '<span class="tl-type">' + U.esc(P.eventName(e.type)) + '</span>' +
         (e.module ? U.moduleChip(e.module) : '') + (e.rule ? U.ruleChip(e.rule, e.result) : '') + (e.obligations || []).map(U.obligationChip).join('') +
-        '<span class="tl-actor">' + U.esc(store.userName(e.actorId)) + '</span></div><div class="tl-detail">' + U.esc(e.detail) + '</div></li>';
+        '<span class="tl-actor">' + U.esc(store.userName(e.actorId)) + '</span></div><div class="tl-detail">' + U.say(e.detail) + '</div></li>';
     }).join('') + '</ol>';
   }
 
@@ -165,13 +186,13 @@
       kv('Operation', E.OPERATIONS[i.operation] ? E.OPERATIONS[i.operation].label : i.operation) +
       kv('Value date', U.fmtDate(i.valueDate)) +
       kv('Interest keyed', U.fmtUSD(i.interest)) + kv('Principal keyed', U.fmtUSD(i.principal)) +
-      kv('Override', i.overrideCode || 'None') + kv('FRONT / FUND / PRINCIPAL', [i.fields.FRONT, i.fields.FUND, i.fields.PRINCIPAL].join(' / ')) +
+      kv('Workaround code', i.overrideCode || 'None') + kv('FRONT, FUND, PRINCIPAL', [i.fields.FRONT, i.fields.FUND, i.fields.PRINCIPAL].map(function (v) { return v === E.WASH ? 'stays in the bank' : 'to lenders'; }).join(', ')) +
       kv('Maker', store.userName(i.makerId)) + kv('Checker', store.userName(i.checkerId)) + kv('Approver', store.userName(i.approverId)) +
-      kv('Tier at submission', p.atSubmit ? 'Tier ' + p.atSubmit.tier : '') +
+      kv('PCAP found when sent', p.atSubmit ? P.tier(p.atSubmit.tier).label + ' (Tier ' + p.atSubmit.tier + ')' : '') +
       (p.releasedAt ? kv('Released', U.fmtUSD(p.releasedExternal) + ' at ' + U.fmtShortDateTime(p.releasedAt) + (p.viaOpRisk ? ' by Operational Risk' : '')) : '') +
       '</div>' +
       (p.atSubmit ? '<div class="statement mini">' + p.atSubmit.statement.map(function (s) { return '<p>' + U.emphasise(s) + '</p>'; }).join('') + '</div>' : '') +
-      '<h3>Evidence trail (event log)</h3>' + paymentTimeline(id);
+      '<h3>Evidence trail: everything PCAP recorded for this payment</h3>' + paymentTimeline(id);
     if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
   }
   function kv(k, v) { return '<div class="kv"><span class="k">' + U.esc(k) + '</span><span class="v">' + U.esc(v) + '</span></div>'; }
@@ -240,11 +261,13 @@
     }
     charts.bind();
     paintThemeButton();
+    paintCodesButton();
     document.getElementById('theme-btn').addEventListener('click', function () { setTheme(currentTheme() === 'light' ? 'dark' : 'light'); });
-    /* Switching role opens that role's own screen (the Synthetic test and the Event log stay put, they are shared tools). */
+    document.getElementById('codes-btn').addEventListener('click', function () { setCodes(!codesOn()); });
+    /* Switching role opens that role's own screen (Test results, the Activity log and About stay put, they are shared). */
     document.getElementById('role-select').addEventListener('change', function (e) {
       var role = e.target.value, here = currentRoute(), home = roleHome(role);
-      var leave = here !== 'synthetic' && here !== 'events' && here !== home;
+      var leave = here !== 'synthetic' && here !== 'events' && here !== 'about' && here !== home;
       setRole(role, leave ? home : null);
     });
     bindTerms();
@@ -254,7 +277,7 @@
       if (v && typeof v.onKey === 'function') { try { v.onKey(e); } catch (err) { reportError(err); } }
     });
     document.getElementById('reset-btn').addEventListener('click', function () {
-      if (root.confirm('Reset all demo data? This clears payments, events and register changes made in this browser.')) {
+      if (root.confirm('Reset all demo data? This clears the payments and changes made in this browser.')) {
         store.reset();
         U.toast('Demo data reset.', 'ok');
         render();
@@ -285,6 +308,8 @@
     openPayment: openPayment,
     paymentTimeline: paymentTimeline,
     currentRoute: currentRoute,
+    routeDef: routeDef,
+    setCodes: setCodes,
     reportError: reportError
   };
 

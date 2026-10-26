@@ -503,11 +503,11 @@
         if (r.status !== 'Active') return false;
         return (r.nextReview && r.nextReview < bd) || (r.dispensationUntil && E.daysBetween(bd, r.dispensationUntil) <= E.DEFAULT_CONFIG.expiringDays);
       }).length;
-      if (due) items.push({ route: 'register', count: due, text: due + ' register entr' + (due === 1 ? 'y needs' : 'ies need') + ' you' });
+      if (due) items.push({ route: 'register', count: due, text: due + ' workaround' + (due === 1 ? ' needs' : 's need') + ' you' });
     }
     if (role === 'audit') {
       var open = riskAcceptances().filter(function (x) { return !x.acceptance.review; }).length;
-      if (open) items.push({ route: 'oversight', count: open, text: open + ' risk acceptance' + (open === 1 ? '' : 's') + ' to review' });
+      if (open) items.push({ route: 'oversight', count: open, text: open + ' risk sign-off' + (open === 1 ? '' : 's') + ' to review' });
     }
     if (uid && (role === 'oprisk' || role === 'owner')) {
       var mine = {};
@@ -515,7 +515,7 @@
       /* Register reviews and dispensations already show on the register for the owner. */
       if (role === 'owner') { delete mine['CC-02']; delete mine['CC-03']; }
       var notGreen = controlHealth().controls.filter(function (c) { return mine[c.id] && c.rag !== 'green'; }).length;
-      if (notGreen) items.push({ route: 'monitor', count: notGreen, text: notGreen + ' control' + (notGreen === 1 ? '' : 's') + ' you own not green' });
+      if (notGreen) items.push({ route: 'monitor', count: notGreen, text: notGreen + ' daily check' + (notGreen === 1 ? '' : 's') + ' you own not green' });
     }
     return { role: role, items: items, total: items.reduce(function (s, x) { return s + x.count; }, 0) };
   }
@@ -865,7 +865,65 @@
       S.seeding = false;
       clearClock();
     }
+    S.state.autoUpTo = S.state.events.length;
     save();
+  }
+
+  /* ------------------------------------------------------------ demo data the app made itself (tour and practice) */
+
+  /* Events up to this point were made by the app (seed, guided tour, practice), not by the person. */
+  function markAuto() {
+    S.state.autoUpTo = S.state.events.length;
+    save();
+  }
+  /* True once the person has done something of their own in this browser, so a reset must ask first. */
+  function hasUserData() {
+    var mark = S.state.autoUpTo;
+    if (mark == null) mark = S.state.events.filter(function (e) { return e.seeded; }).length;
+    return S.state.events.length > mark;
+  }
+
+  /* "Try it yourself": practice work waiting for every role, on top of fresh demo data. Same store actions as the
+     payment desk buttons, so every step is logged and tagged as usual. Marked as prepared demo data (seeded). */
+  function practice() {
+    var bd = today();
+    var lend = { FRONT: E.LENDERS, FUND: E.LENDERS, PRINCIPAL: E.LENDERS };
+    var wash = { FRONT: E.WASH, FUND: E.WASH, PRINCIPAL: E.WASH };
+    function instr(o) {
+      return { loanId: o.loanId, operation: o.operation || 'INTEREST', valueDate: bd, interest: o.interest, principal: o.principal || 0, overrideCode: o.overrideCode || '',
+        fields: o.fields || lend, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: o.approverId || 'U-AP1', makerNote: o.note || '' };
+    }
+    var out = {};
+    S.seeding = true;
+    try {
+      /* Internal Audit and the risk owner: a stopped payment released under a risk sign-off, waiting for review. */
+      var x = submitInstruction(instr({ loanId: 'LN-1003', interest: 487500, note: 'Monthly interest, paid five days early because the borrower asked.' }), 'U-MK1');
+      checkPayment(x.id, 'U-CK1', 'Early payment agreed with the agent. Notice attached.');
+      approverOpen(x.id); approverRekey(x.id, 487500, 'INTEREST'); approverReveal(x.id);
+      approverEscalate(x.id, { dwellSec: 34, note: 'The agent notice moves this interest to today. The loan schedule still shows it in five days.' });
+      opRiskRelease(x.id, 'U-OR1', E.ACCEPT_CATEGORIES[1], 'Borrower asked to pay the monthly interest early. The agent notice confirms the amount and the date.', 140, { ownerId: 'U-HLO' });
+      out.signedOff = x.id;
+      /* Operational Risk: the 2020 payment, stopped and waiting for a decision. */
+      var r = submitInstruction(E.REPLAY.instruction(), 'U-MK1');
+      checkPayment(r.id, 'U-CK1', 'Principal set to wash.');
+      approverOpen(r.id); approverRekey(r.id, 7820000, 'INTEREST'); approverRekey(r.id, 7820000, 'INTEREST'); approverReveal(r.id);
+      approverEscalate(r.id, { dwellSec: 38, note: 'My notice says USD 7.8M of interest only. This would send the principal out.' });
+      out.stopped = r.id;
+      /* Approver: one that needs a closer look, then a routine one (the newest opens first). */
+      var b = submitInstruction(instr({ loanId: 'LN-1004', operation: 'INTEREST_VIA_WASH', interest: 2145000, principal: 310000000, overrideCode: 'WA-01', fields: wash, note: 'Roll-up. Interest to lenders, principal stays in the bank (WA-01).' }), 'U-MK1');
+      checkPayment(b.id, 'U-CK1', 'All three legs set to the wash account.');
+      var a = submitInstruction(instr({ loanId: 'LN-1001', interest: 1284375, approverId: 'U-AP3', note: 'Quarterly interest.' }), 'U-MK1');
+      checkPayment(a.id, 'U-CK1', '');
+      out.closerLook = b.id;
+      out.routine = a.id;
+      /* Checker: a routine instalment waiting. */
+      var c = submitInstruction(instr({ loanId: 'LN-1002', operation: 'PRINCIPAL_AND_INTEREST', interest: 618750, principal: 12500000, note: 'Quarterly instalment.' }), 'U-MK1');
+      out.toCheck = c.id;
+    } finally {
+      S.seeding = false;
+    }
+    markAuto();
+    return out;
   }
 
   function init() {
@@ -891,6 +949,9 @@
     VERSION: VERSION,
     init: init,
     reset: reset,
+    markAuto: markAuto,
+    hasUserData: hasUserData,
+    practice: practice,
     save: save,
     st: st,
     today: today,

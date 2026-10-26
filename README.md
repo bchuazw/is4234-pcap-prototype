@@ -6,11 +6,11 @@ Working prototype for the NUS IS4234 Group 4 report "Approved but Not Understood
 
 ## For teammates
 
-**Look at this first (10 minutes).** Open https://bchuazw.github.io/is4234-pcap-prototype/ and press **Start the demo with the Revlon replay** on the How to demo screen. Follow the "Switch to ..." buttons through Maker, Checker, Approver and Op Risk (steps 1 to 4 of the demo path). Then open **Synthetic test** and press **Run seeds 1 to 50**. That is the whole case for the report in about ten clicks: the pre-release statement, the blind re-key, the Tier 3 hard stop, and the numbers in 5.8. The How to demo screen also has three short panels for the report and the Q&A: **How it answers the report** (RC1 to RC5 and R1 to R7 mapped to screens), **What this shows from IS4234** (three lines of defence and the lecture ideas mapped to screens) and **Feasibility and who has to agree**.
+**Look at this first (10 minutes).** Open https://bchuazw.github.io/is4234-pcap-prototype/. The app opens on **Home**. Press **See how PCAP would have stopped it** and then only **Next**: the guided tour replays the 2020 payment in the real app in nine steps (maker keys it, PCAP says what will really leave, the checker passes it on, you as the approver type your own figure, PCAP stops it, Operational Risk decides, the fix, and a routine payment released in one click). At the end press **Explore on your own**, pick a role card under **Try it yourself** (for example **I approve payments**) and do a real release. Then open **Test results** and press **Run seeds 1 to 50**. The material for the report and the Q&A (RC1 to RC5 and R1 to R7 mapped to screens, the IS4234 concepts, feasibility, the rules table, tiers, limitations and the synthetic test notes) is on **About this prototype**, linked at the bottom of Home and in the footer. Turn on **Show report codes** in the header to see M1 to M6 and R-01 to R-09 as small tags on every screen.
 
 **Feedback wanted.**
 - Does the consequence card say what the Revlon payment would do in words a non-technical marker understands?
-- Is any screen or button confusing without Brian explaining it? Note the screen and what you expected.
+- Is any screen or button confusing without Brian explaining it? Note the screen and what you expected. (See the five-second test in `Assignments/G4-Brian-PREP/zero-learning-review.md`.)
 - Anything that disagrees with your section of the report (module names, rule names, thresholds, Table 4 rows, cadence).
 - Spot checks on the light theme on a projector, and on a phone.
 
@@ -25,6 +25,20 @@ Working prototype for the NUS IS4234 Group 4 report "Approved but Not Understood
 - R-07 re-keys the amount and the payment type (interest only, principal and interest, or principal only), because 3.1.4 says the approver re-keys "amount and nature".
 
 **Yong Kang**: the app tags events to Table 4 rows O1 to O7 in this order: delegation of authority, segregation of duties, competency and training, manuals and MIS, outsourcing accountability, legacy system limitation, sustained effectiveness. If Table 4 ends up with different rows or order, tell Brian and the tags change in `data/seed-data.js`. Table 2 in 3.2 now has seven MAS rows that differ slightly (competency and training are two rows there, there is no sustained-effectiveness row, and some paragraph numbers differ). See `Assignments/G4-Brian-PREP/prototype-relevance-review.md` for the list.
+
+## Design principle: zero learning
+
+Brian's feedback on the previous version: "when i look at the dashboard and the how to demo guide, i am confused. i dont know what im looking at, what is happening, and what i need to do, or what this platform does. if the platform requires teaching and learning, it deters people from using it."
+
+Yang Lu made the same point in L1 (slide 13): governance that "may create unnecessary troubles or workload for your employees or for other relevant groups such as vendor side, third party side ... may be hated by these kind of groups", so it meets resistance (Yang 2026a). A control people have to learn is a control people work around, and a workaround is how the 2020 payment went out.
+
+So the screens explain themselves by what they show, not by text about themselves:
+
+- **Home** says what PCAP does in one sentence, shows how it works in three steps, shows the case in one glance (meant to pay USD 7.8M of interest, actually sent USD 894M, three people approved it) and offers two ways in: the guided tour, or **Try it yourself** with practice payments for a chosen role.
+- **Plain words by default.** Tabs are Home, Payments, Workarounds, Approval habits, Daily checks, Board and audit, Test results and Activity log. Tiers read **Routine**, **Needs a closer look** and **Stopped**, with the tier number small beside them. Module and rule codes (M1 to M6, R-01 to R-09) are hidden until **Show report codes** is turned on, and then show as small tags.
+- **One line at the top of every screen** says what the screen is for and what to do now, for the role you are in (for example "Release payments once you know what they will really do. 2 payments are waiting. The first is open: read what it will do, then release it or stop it.").
+- **Long tables fold away** (the workaround list, certificates, the obligation map, the team table, each kind of planted mistake).
+- **Marker material moved, not deleted,** to **About this prototype**, where codes are always shown.
 
 ## What PCAP is
 
@@ -59,9 +73,11 @@ Honest limits of these numbers:
 
 - **From the folder or the ZIP:** unzip, then double-click `index.html`. It opens in Edge, Chrome, Firefox or Safari. No install, no build step, no internet connection and no login.
 - **Online:** https://bchuazw.github.io/is4234-pcap-prototype/
-- On the payment desk, use **Acting as** to switch between Maker, Checker, Approver and Op Risk. The **Acting as** menu at the top also has Head of Loan Ops (first-line risk owner, owns the register), Internal Audit (third line, cannot run controls), the Board Risk Committee and Wipro's service manager (both read only). Choosing a role there opens that role's own screen. When a payment waits for another role, the desk shows a "Switch to ..." button.
+- **Home** has the guided tour (**See how PCAP would have stopped it**) and **Try it yourself**. The tour starts from fresh demo data and asks first if you have made changes of your own. Each step does the action in the real app and frames it with a spotlight. **Next**, **Back** and **Skip tour** are on the card, the arrow keys move between steps and **Esc** closes it. It ends on "That's PCAP" with **Explore on your own** and **Replay**. A role card under **Try it yourself** starts from fresh demo data with practice work waiting for every role: a routine and a closer-look payment for the approver, one for the checker, the 2020 payment stopped for Operational Risk, a risk sign-off for Internal Audit to review, and the 2020 payment in the maker's form.
+- On **Payments**, use **You are** to switch between Maker, Checker, Approver and Op Risk. The **You are** menu in the header also has Head of Loan Ops (first-line risk owner, owns the workarounds), Internal Audit (third line, cannot run controls), the Board Risk Committee and Wipro's service manager (both read only). Choosing a role there opens that role's own screen. When a payment waits for another role, the desk shows a "Switch to ..." button. If nothing waits for you, **Give me practice payments** puts some in your queue.
+- **Show report codes** in the header adds the report's codes (M1 to M6, R-01 to R-09, obligation rows O1 to O7) as small tags on every screen and shows recorded evidence text exactly as stored. The choice is remembered in this browser. Codes are always shown on **About this prototype**.
 - A number on a tab and in the role menu shows what needs the role acting now, and only things that role has to act on.
-- Words with a dotted underline (wash account, Tier 3, risk acceptance, rule codes and so on) explain themselves when you point at them, tab to them or tap them.
+- Words with a dotted underline (wash account, Stopped, risk sign-off, "You can approve this" and so on) explain themselves when you point at them, tab to them or tap them.
 - Desk keys: **J** and **K** move through the queue, **/** searches it, **Enter** presses the focused button and **Ctrl+Enter** does the main action of your panel. At Tier 1 the release button already has focus, so Enter releases and the next waiting payment opens by itself. A second Enter within 0.6 s is ignored, so a held key cannot release two payments.
 - Everything you do is kept in this browser only (localStorage). **Reset demo data** restores the starting point. If the browser blocks storage, the app still works and shows a notice that changes last until reload.
 - The app opens in a dark theme. The **Light** button in the header switches to a light theme for projectors, and the choice is remembered in this browser (if storage is blocked it lasts until reload). Reset demo data does not change the theme.
@@ -74,43 +90,45 @@ Honest limits of these numbers:
 | `index.html` | The single page. Classic scripts only, so it also works from `file://`. |
 | `css/styles.css` | All styles, with dark and light theme colours as CSS variables. No frameworks. |
 | `fonts/` | Self-hosted fonts (Space Grotesk, IBM Plex Sans, JetBrains Mono, Latin subset, woff2) and their SIL Open Font License files. Nothing is loaded from the internet. |
-| `js/engine.js` | **All rule logic**: R-01 to R-09, the consequence statement, tiers, the Revlon replay and the seeded synthetic test. Loads in the browser and in Node. |
+| `js/engine.js` | **All rule logic**: R-01 to R-09, the consequence statement, tiers, the Revlon replay and the seeded synthetic test. Loads in the browser and in Node. Unchanged by the zero-learning pass. |
+| `js/plain.js` | The plain words: tab names, tier names (Routine, Needs a closer look, Stopped), role names, the Home role cards, the one line at the top of each screen, plain names for recorded steps, and the filter that shows recorded evidence text without codes. Loads in Node for the tests. |
+| `js/tour.js` | The guided tour. Each step is a store action plus one render, so no step depends on timing. Back rebuilds from fresh demo data. Loads in Node for the tests. |
 | `js/store.js` | State, browser storage, payment actions and the tagged event log. |
 | `js/charts.js` | Small inline SVG charts in the theme colours. No chart library. |
 | `js/motion.js` | Transitions and animations only. It never changes data or events. |
-| `js/views/*.js` | One file per screen. `value.js` builds each role's "This week" strip, the "needs you" counts and the Board's cost and value card. |
-| `js/app.js` | Router, role switcher, reset and the payment detail dialog. |
+| `js/views/*.js` | One file per screen. `home.js` is Home and Try it yourself, `about.js` is About this prototype (the marker material that used to be on How to demo). `value.js` builds each role's "This week" strip, the "needs you" counts and the Board's cost and value card. |
+| `js/app.js` | Router, role switcher, report codes switch, reset, the one line at the top of each screen and the payment detail dialog. |
 | `data/seed-data.js` | Synthetic people, loans, register entries, controls and the Table 4 obligation rows. |
 | `tests/` | Node unit tests (`node --test`). |
 
 ## Modules, rules and screens
 
-| Module | Group | Screen in the app |
+| Module | Group | Screen in the app (plain name) |
 |---|---|---|
-| M1 Workaround and Legacy Constraint Register | Govern | Register |
-| M2 Pre-Release Consequence Engine | Prevent | Payment desk |
-| M3 Authority and Independence Gate | Prevent | Payment desk (maker review step and approver gate) |
-| M4 Approval Behaviour Analytics | Detect | Behaviour analytics |
-| M5 Compensating Control Monitor | Detect | Control monitor |
-| M6 Obligation Map and Oversight Dashboard | Govern | Obligations and Board, Event log |
+| M1 Workaround and Legacy Constraint Register | Govern | Workarounds |
+| M2 Pre-Release Consequence Engine | Prevent | Payments |
+| M3 Authority and Independence Gate | Prevent | Payments (maker review step and "You can approve this") |
+| M4 Approval Behaviour Analytics | Detect | Approval habits |
+| M5 Compensating Control Monitor | Detect | Daily checks |
+| M6 Obligation Map and Oversight Dashboard | Govern | Board and audit, Activity log |
 
 | Rule | Module | Logic in the prototype | Action | Screen |
 |---|---|---|---|---|
-| R-01 Variance | M2 | Compares the amount PCAP computes will leave the bank with what the loan schedule expects on the value date, less anything already paid. Tolerance is the larger of USD 500 or 0.1%. | Over tolerance: Tier 2. Over 10% or USD 5 million, or nothing due: Tier 3. | Payment desk |
-| R-02 Unscheduled principal | M2 | Principal leaving the bank when none (or less) is due that day. | Tier 3 | Payment desk |
-| R-03 Unregistered workaround | M1 | Any override (code, wash-account setting or workaround operation) must match an active register entry for that operation with an in-date dispensation. | Tier 3 | Payment desk, Register |
-| R-04 Incomplete workaround | M1 | A registered workaround must have all its required fields set. WA-01 needs FRONT, FUND and PRINCIPAL set to the wash account. | Tier 3 | Payment desk, Register |
-| R-05 Certification | M3 | Approver holds a current certification for the override type and an approval limit at least equal to the computed outgoing amount. | M3 gate closes, blocked attempt logged, reassign | Payment desk |
-| R-06 Independence | M3 | Approver is not the maker or checker, not in their team or reporting line, and in-house (Citi) for override payments. | M3 gate closes, blocked attempt logged, reassign | Payment desk |
-| R-07 Active confirmation | M2 | At Tier 2 and 3 the approver re-keys the outgoing amount and says whether it is interest only, principal and interest, or principal only, without seeing the maker's figure or the checker's note. Both must match what PCAP computed. | First mismatch: re-check. Second mismatch: Tier 3. | Payment desk (Approver) |
-| R-08 Rubber-stamp score | M4 | Team score from 0 to 100, scored weekly and reported monthly: fast looks at the consequence screen (40), re-key slips (30), Tier 2 approvals within 5 seconds of the warning (30). Shown only for teams of at least 3 approvers. | Amber at 25, red at 50. Never blocks a payment. | Behaviour analytics |
-| R-09 Control health | M5 | Same-day independent reconciliation, register reviews, dispensations, certifications, hard-stop queue and the replay regression test. | Red, amber or green per control, fed to M6 | Control monitor |
+| R-01 Variance | M2 | Compares the amount PCAP computes will leave the bank with what the loan schedule expects on the value date, less anything already paid. Tolerance is the larger of USD 500 or 0.1%. | Over tolerance: Tier 2. Over 10% or USD 5 million, or nothing due: Tier 3. | Payments |
+| R-02 Unscheduled principal | M2 | Principal leaving the bank when none (or less) is due that day. | Tier 3 | Payments |
+| R-03 Unregistered workaround | M1 | Any override (code, wash-account setting or workaround operation) must match an active register entry for that operation with an in-date dispensation. | Tier 3 | Payments, Workarounds |
+| R-04 Incomplete workaround | M1 | A registered workaround must have all its required fields set. WA-01 needs FRONT, FUND and PRINCIPAL set to the wash account. | Tier 3 | Payments, Workarounds |
+| R-05 Certification | M3 | Approver holds a current certification for the override type and an approval limit at least equal to the computed outgoing amount. | M3 gate closes, blocked attempt logged, reassign | Payments |
+| R-06 Independence | M3 | Approver is not the maker or checker, not in their team or reporting line, and in-house (Citi) for override payments. | M3 gate closes, blocked attempt logged, reassign | Payments |
+| R-07 Active confirmation | M2 | At Tier 2 and 3 the approver re-keys the outgoing amount and says whether it is interest only, principal and interest, or principal only, without seeing the maker's figure or the checker's note. Both must match what PCAP computed. | First mismatch: re-check. Second mismatch: Tier 3. | Payments (approver) |
+| R-08 Rubber-stamp score | M4 | Team score from 0 to 100, scored weekly and reported monthly: fast looks at the consequence screen (40), re-key slips (30), Tier 2 approvals within 5 seconds of the warning (30). Shown only for teams of at least 3 approvers. | Amber at 25, red at 50. Never blocks a payment. | Approval habits |
+| R-09 Control health | M5 | Same-day independent reconciliation, register reviews, dispensations, certifications, hard-stop queue and the replay regression test. | Red, amber or green per control, fed to M6 | Daily checks |
 
-**Tiers.** Tier 1 routine: the approver reads the consequence statement and releases. Tier 2 elevated: blind re-key plus an explicit confirmation. Tier 3 critical: hard stop that only Operational Risk can release, by recording a risk acceptance (reason, first-line risk owner, this payment only, expires at the end of the business day). Any payment using a valid registered override is at least Tier 2. The tier thresholds are the bank's risk tolerance levels: what each level of risk makes people do.
+**Tiers.** On screen the tiers read **Routine** (Tier 1), **Needs a closer look** (Tier 2) and **Stopped** (Tier 3), with the number small beside the name. Tier 1 routine: the approver reads the consequence statement and releases. Tier 2 elevated: blind re-key plus an explicit confirmation. Tier 3 critical: hard stop that only Operational Risk can release, by recording a risk acceptance (reason, first-line risk owner, this payment only, expires at the end of the business day). Any payment using a valid registered override is at least Tier 2. The tier thresholds are the bank's risk tolerance levels: what each level of risk makes people do.
 
 **Three lines of defence.** First line: the Wipro maker and checker (tasks only), the Citi approver and the Head of Loan Ops (owns M1 to M3 and the risk of a Tier 3 release). Second line: Operational Risk (Tier 3 holds, M4, M5) and Compliance (M6). Third line: Internal Audit, read only, reviews every risk acceptance and pulls the evidence pack, and the app stops it from running the controls it audits.
 
-**Event log.** Every rule result, gate check, re-key, statement shown, hold, risk acceptance, release, register change, reconciliation and test writes an event tagged with its module, rule and obligation row (O1 to O7 from Table 4). M4, M5 and M6 are built from these events. The evidence pack exports them as JSON and CSV, with the risk acceptances listed separately for Internal Audit.
+**Activity log (the event log).** Every rule result, gate check, re-key, statement shown, hold, risk acceptance, release, register change, reconciliation and test writes an event tagged with its module, rule and obligation row (O1 to O7 from Table 4). M4, M5 and M6 are built from these events. The evidence pack exports them as JSON and CSV, with the risk acceptances listed separately for Internal Audit.
 
 ## Look and motion: the "Control Tower" theme
 
@@ -118,24 +136,22 @@ Payments are treated like flights that need clearance before take-off, which kee
 
 - **Work queue as flight progress strips.** Each payment is a strip with its ID, amount, loan, a tier colour edge (green Tier 1, amber Tier 2, red Tier 3) and its status. Strips slide between "Waiting for you", "In progress" and "Done" when a payment is handed on.
 - **Lifecycle as a clearance track.** The maker, checker, approver, Op Risk and release steps fill in as the payment moves on, and the track turns red for a ground stop and green when the payment is cleared and released.
-- **Tier 3 as a ground stop.** The hard stop banner has a striped barrier edge and says "Ground stop: only Operational Risk can clear this payment for release". The official terms (Tier 1 to 3, M1 to M6, R-01 to R-09, maker, checker, approver) stay as they are in the report.
+- **Tier 3 as a ground stop.** The hard stop banner keeps its striped barrier edge and says "Stopped. Only Operational Risk can release this payment", with "Tier 3" as a small tag. The report's codes (M1 to M6, R-01 to R-09) are behind **Show report codes** and always on the About page. Maker, checker and approver keep their names.
 - **Motion with a purpose.** Screens fade and rise in, amounts on the consequence card count up while the schedule and payment bars grow, then the "115 times" line appears. Failed checks appear first. A blind re-key mismatch shakes the amount box, and a match glows green. Board KPIs count up and charts draw in once. Animations last about 150 to 400 ms (counting and drawing up to about 0.9 s) and are switched off when the computer is set to reduce motion.
 - **Fonts.** Space Grotesk for headings and numbers, IBM Plex Sans for text and JetBrains Mono for IDs, account legs and rule IDs. All three are under the SIL Open Font License 1.1 (licence texts in `fonts/`). They are loaded with `font-display: block`, so there is no flash of fallback text on first paint.
 
 ## Five minute demo script (for the video)
 
-The **How to demo** screen has a "Go" button for each step that switches role and opens the right screen.
+Press **Reset demo data** first. The guided tour does the payment desk part by itself, so the video is mostly pressing **Next** and talking. A manual path with a **Go** button per step is on About this prototype, under "Manual demo path", if you want to drive it by hand.
 
-1. **0:00 to 0:20. Open it.** Show the page (GitHub Pages link or `index.html`). Point at the header: prototype, synthetic data. One sentence on the case: about USD 7.8M of interest was meant, about USD 894M of principal went out after six-eyes approval.
-2. **0:20 to 1:15. Maker keys the Revlon replay.** Click "Start the demo with the Revlon replay". The New payment form opens at step 1, Instruction. Under Settlement routing, FRONT and FUND are still "Lenders" and only PRINCIPAL is on the wash account. Click **Review payment** (step 2). The ground stop banner says "Tier 3: hard stop" and the consequence card says "This payment will send USD 901.7M to 315 lenders, including USD 893.9M of principal", with bars showing 115 times what the schedule expects. R-04 (FRONT and FUND not set), R-02 (no principal due) and R-01 (USD 893.9M over the schedule) fail. Click **Submit to checker** anyway, as happened in 2020.
-3. **1:15 to 1:35. Checker.** The stepper shows the payment at Checker review. Click **Switch to Checker**. PCAP shows the hard stop and offers **Return to maker** first. To show what happened in 2020, type the note "Principal set to wash" and click **Send to approver anyway** (a note is needed only at Tier 3). Say that the approver will not see this note until after the blind re-key.
-4. **1:35 to 2:35. Approver.** Click **Switch to Approver**. The amounts are hidden, even in the queue. The authority check (M3 gate) is open: certified, independent, in-house. Type 7,820,000, pick **Interest only** and click **Check amount** (or press Enter). Open "Your source: agent notice" below the form if you want to show where the figure comes from. It does not match, so do it again. R-07 escalates, the consequence card appears with the principal amount, and the time on screen is recorded for M4. Add a note and click **Send to Operational Risk**.
-5. **2:35 to 3:05. Operational Risk.** Click **Switch to Op Risk**. Show "Why it was held", the "Who saw it" card and the **Evidence trail** button. Open **Release it instead** to show that a release is a risk acceptance with a first-line owner and a same-day expiry (L5). Write a reason and click **Reject and return to maker**. Optional if time allows: click **Switch to Maker**, then **Edit and resubmit**. The form opens at Settlement routing with FRONT and FUND marked "needs the wash account". Set them, review and resubmit. It passes at Tier 2 with only USD 7.8M leaving and the principal staying inside the bank. Check it, re-key 7,820,000 as Interest only, tick **I confirm** and release.
-6. **3:05 to 3:25. M1 Register.** Switch to Head of Loan Ops in the menu at the top (it opens the register). The **Needs you** list shows WA-02's review is overdue and WA-03's dispensation ends soon. Click **Mark reviewed** next to WA-02 (an owner attestation in the log).
-7. **3:25 to 3:45. M4 Behaviour analytics.** Team TPA has drifted into red on R-08: fast looks and fast approvals after Tier 2 warnings. Point at the privacy banner: team level by default, at least 3 approvers per team, individual view only with a logged reason. Below, the outsourced provider card counts the check that sent a Tier 3 payment on.
-8. **3:45 to 4:05. M5 Control monitor.** As Operational Risk, click "Run same-day reconciliation". Show the red, amber and green controls (lapsed certification, expiring dispensation) and the replay regression test.
-9. **4:05 to 4:35. M6 Obligations and Board.** Switch to Internal Audit (third line). It opens on the risk acceptances to review (click **No issue** on one if you released a hold) and the evidence pack. Click **Export evidence pack** and show the JSON and CSV files. Scroll to the Board KRIs with trends (including the R6 legacy roadmap KRI) and **What PCAP costs and what it buys**: about 82% of payments need no extra step and about 13 s of approver time per payment on average, from the synthetic model.
-10. **4:35 to 5:00. Synthetic test.** 500 synthetic payments with 25 injected errors: every Tier 3 error held, 22 of 25 stopped before release, the 3 small slips inside tolerance found the same day by M5, 1.1% false alarms, and the Revlon replay passes. Close: PCAP narrows the gap between approving and understanding.
+1. **0:00 to 0:20. Home.** Read the headline and point at the case card: meant to pay USD 7.8M of interest, actually sent USD 894M, three people approved it. Point at the three steps under "How it works".
+2. **0:20 to 2:40. The tour.** Press **See how PCAP would have stopped it** and then **Next** at each step. What to say: (1) Priya keys the roll-up, and only PRINCIPAL is set to stay in the bank. (2) Before anything moves, PCAP says the payment will send USD 901.7M, 115 times what is due, and marks it Stopped (R-01, R-02 and R-04 fire). (3) The checker sees the same warning, and the tour passes it on as happened in 2020. (4) The approver's numbers are hidden: they type USD 7.8M of interest from their own notice (R-07, the blind re-key). (5) It does not match twice, so PCAP shows the real amount and the approver cannot release it. (6) Only Operational Risk can decide, and a release would need a written risk sign-off (L5 risk acceptance). (7) Sent back and fixed: only USD 7.8M of interest leaves and the principal stays in the bank, still a closer look because it uses a workaround. (8) A routine payment: one sentence and one click. (9) Every step was recorded for audit as it happened. End on "That's PCAP".
+3. **2:40 to 3:15. Try it yourself.** Press **Explore on your own**, then **I approve payments**. Release the routine payment (the button names what will leave the bank), and the next one opens by itself asking for your own figure.
+4. **3:15 to 3:35. Workarounds (M1).** Pick Head of Loan Ops in **You are**. The **Needs you** list shows WA-02's review is overdue and WA-03's dispensation ends soon. Click **Mark reviewed** next to WA-02.
+5. **3:35 to 3:55. Approval habits (M4).** As Operational Risk: Team TPA is red on the rubber-stamp score (R-08). Point at "Team level only".
+6. **3:55 to 4:15. Daily checks (M5).** Click **Run same-day reconciliation** and show the red, amber and green checks.
+7. **4:15 to 4:40. Board and audit (M6).** As Internal Audit, click **No issue** on the risk sign-off and **Download evidence pack**. As the Board, show the numbers with red first and **What PCAP costs and what it buys** (about 82% of payments need no extra step, about 13 s of approver time per payment on average, from the synthetic model).
+8. **4:40 to 5:00. Test results.** 500 made-up payments with 25 planted mistakes: every big mistake stopped, 22 of 25 stopped before release, the 3 tiny slips found the same day, 1.1% false alarms, and the 2020 payment test passes. Turn on **Show report codes** if the Q&A needs the codes. Close: PCAP narrows the gap between approving and understanding.
 
 ## Tests
 
@@ -145,7 +161,7 @@ From this folder, with Node 18 or later (built and run on Node 25):
 node --test
 ```
 
-There are 36 tests in `tests/engine.test.js`, `tests/flow.test.js` and `tests/value.test.js` (all passing, last run 25 Oct 2026). They check that:
+There are 44 tests in `tests/engine.test.js`, `tests/flow.test.js`, `tests/value.test.js` and `tests/zero-learning.test.js` (all passing, last run 26 Oct 2026). They check that:
 
 - the Revlon replay is held at Tier 3 with R-01, R-02 and R-04 firing, and the statement shows the principal amount
 - a normal scheduled interest payment releases at Tier 1, and a correct WA-01 roll-up is Tier 2 with the principal kept inside the bank
@@ -159,10 +175,16 @@ There are 36 tests in `tests/engine.test.js`, `tests/flow.test.js` and `tests/va
 - the weekly counts behind each role's "This week" strip are right, including a check that sends on a payment keyed at Tier 3 the week before and the money kept back by a hold that was a real error
 - each role's "needs you" count only lists what that role has to act on, Internal Audit can record one review per risk acceptance (a finding needs a reason), and nobody else can record it
 - the Board and Wipro's service manager cannot run controls, and the Tier 1 fast path removes no control: Tier 2 still needs the re-key and the confirmation and Tier 3 still needs Operational Risk
+- every screen has a plain line at the top for every role, with no report codes, no em or en dashes and no semicolons, and tabs, tiers, roles and role cards use plain words (the old `#/guide` link opens Home)
+- the tour has short plain steps, runs the real controls end to end (held at Tier 3 with R-01, R-02 and R-04, re-key escalated, rejected by Operational Risk, fixed to Tier 2 with no principal leaving, a routine payment released at Tier 1 with no re-key), rebuilds every step the same way for Back, and does not count as the person's own data
+- a reset asks first only when the person has data of their own, and Try it yourself puts practice work in every role's queue, marked as demo data
+- recorded evidence keeps its codes but every recorded text reads without codes on screen when report codes are off
 
 The browser screens were also checked in headless Microsoft Edge at 1400, 1024 and 390 px width, in both the dark and light themes: the full payment desk flow ran through every role with no JavaScript errors and no sideways scrolling, every step wrote the same event log entries as before the redesign, the app still works when browser storage is blocked, and it works with reduced motion switched on. The last review also checked the keyboard tab order on every screen, that the theme and the open payment survive a reload (including a reload halfway through the approver's blind re-key, where the attempt count and the time on screen carry on), Reset demo data, the evidence pack download (JSON and CSV), the seed run and the 50-seed sweep (about 2 s, run in small chunks with progress on the button so the page never freezes), the register add, review and retire actions, the History and Event log filters, the dialogs and toasts, fonts loaded before first paint, and no layout shift on load. After the relevance review (25 Oct 2026), the changed screens were checked again at 1400 and 390 px in both themes: the How to demo panels, the approver re-key with the payment type, the Op Risk risk acceptance and release, the register, behaviour analytics, and the control monitor and Obligations and Board as Internal Audit. No JavaScript errors, no sideways scrolling (two older tables on Behaviour analytics and Control monitor were widening the page on phones and are now wrapped), and the synthetic test fingerprint is unchanged.
 
 After the usability and value review (25 Oct 2026), a scripted pass in headless Edge drove every role at 1400 and 390 px in both themes, with 45 checks at 1400 px and 43 at 390 px, all passing: the checker's Tier 3 note rule, inline errors on the re-key, the confirmation and the Op Risk reason, the reason counter, the dotted-term explanations (focus, Escape), Enter releasing a Tier 1 payment, the next payment opening by itself, a second Enter within 0.6 s being ignored, the queue search, tier filter and J and K keys, New payment starting from the schedule line, Undo after loading a demo scenario over a filled form, the maker form opening at the routing with the missing legs marked, the owner's needs list, Internal Audit recording a review, the Board and Wipro views being read only, and each role opening on its own screen. No JavaScript errors, no sideways scrolling, and the synthetic test fingerprint is unchanged (`f5f23476`).
+
+**Zero-learning pass (26 Oct 2026).** A scripted pass in headless Edge drove Home, every tour step, every role card, every screen as its own role, the report codes switch and the About page at 1400 and 390 px in both themes (and once with reduced motion), with 34 checks per run plus a spotlight check on every tour step: the tour starts without asking on fresh data and asks when there is data of your own, the spotlight frames each target with the card on screen and not covering it, Back and the arrow keys rebuild the same step, Esc closes it, Replay restarts it, Explore on your own returns to Home, each role card lands on work waiting for that role, the codes switch is remembered across a reload, and the visible copy on every screen has no em or en dashes, no semicolons and no report codes while codes are off. No JavaScript errors and no sideways scrolling. The five-second test for every screen, before and after, is in `Assignments/G4-Brian-PREP/zero-learning-review.md`.
 
 ## Synthetic test results
 
@@ -216,9 +238,14 @@ These fill gaps where the report drafts do not yet fix the behaviour. They are e
 - Friction is kept at Tiers 2 and 3 and nothing was removed there. The blind re-key, the "I confirm" tick and the Tier 3 hold are unchanged. The approver's own payment type is kept for the second re-key attempt, but nothing from the maker or checker is ever filled in.
 - A checker who sends on a Tier 3 payment has to write why (at least 10 characters). This is enforced on the payment desk only, not in `js/store.js`, so the synthetic test and the existing tests are unchanged.
 - The approver no longer sees a ticking "time on this screen" counter, because a visible timer invites people to wait it out (gaming dwell time, report 5.9). The time is still recorded for M4 exactly as before.
-- Two read-only roles were added so every user in the review has a screen: the Board Risk Committee (opens on Obligations and Board) and Wipro's service manager (opens on a provider-only view with no Citi approver data). Neither can run a control.
+- Two read-only roles were added so every user in the review has a screen: the Board Risk Committee (opens on Board and audit) and Wipro's service manager (opens on a provider-only view with no Citi approver data). Neither can run a control.
 - Internal Audit can now record its review of each risk acceptance (no issue, or a finding with a reason). This is audit work, not running a control, so it does not break the rule that the third line does not run the controls it audits. It is logged as `ACCEPTANCE_REVIEWED` (M6, rows O1 and O2) and is in the evidence pack.
 - "Needs you" counts show only things the role must act on (waiting payments, register items, acceptances to review, controls it owns that are not green, red KRIs for the Board, hard stops sent on for the provider). Nothing is pushed as a pop-up, to avoid alert fatigue.
+- **Zero learning (26 Oct 2026).** The How to demo page is replaced by Home and the guided tour. The tour drives the real store actions and draws each step once, so it never waits on a timer. Back rebuilds the step from fresh demo data, which is why it is always the same. Practice payments are marked as demo data, so the next tour or role card does not ask before clearing them.
+- Recorded evidence text (the activity log, control messages, risk sign-off follow-ups) is stored with the report's codes, because that is what an auditor tests and what the evidence pack exports. With codes off, the screens show it through a plain-words filter in `js/plain.js`. The stored text and the evidence pack never change.
+- "Risk acceptance" reads as **risk sign-off** on screen and "blind re-key" as **your own figure**. The report's terms are in the dotted-term explanations and on the About page.
+- The approver's typed-figure card says in plain words why PCAP wants a closer look (a workaround, an amount the schedule does not expect, or something badly off) without giving away any number.
+- On phones the desk's "This week" strip steps aside so the payment is closer to the top. It stays on the other screens.
 
 ## Limitations
 

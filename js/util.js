@@ -93,26 +93,28 @@
   }
 
   var TIER_ICON = { 1: 'check', 2: 'warn', 3: 'stop' };
+  /* Plain name first ("Stopped"), the tier number small after it. noLabel keeps it short for tight tables. */
   function tierBadge(tier, opts) {
     opts = opts || {};
-    var t = E.TIERS[tier] || E.TIERS[1];
+    var t = PCAP.plain ? PCAP.plain.tier(tier) : { label: (E.TIERS[tier] || E.TIERS[1]).label, short: (E.TIERS[tier] || E.TIERS[1]).label };
     return '<span class="tier tier-' + tier + (opts.big ? ' tier-big' : '') + '">' + icon(TIER_ICON[tier]) +
-      '<span>' + esc(t.name) + (opts.noLabel ? '' : ' <em>' + esc(t.label) + '</em>') + '</span></span>';
+      '<span>' + esc(opts.noLabel ? t.short : t.label) + ' <em>Tier ' + tier + '</em></span></span>';
   }
 
+  /* Report codes as chips. They carry the code-tag class, so they only show when "Show report codes" is on (and on About). */
   function moduleChip(mid, opts) {
     var m = E.MODULES[mid];
     if (!m) return '';
     var g = m.group.toLowerCase();
-    return '<span class="chip mod mod-' + g + '" title="' + esc(m.name + ' (' + m.group + ')') + '">' + esc(mid) + (opts && opts.name ? ' ' + esc(m.short) : '') + '</span>';
+    return '<span class="chip mod code-tag mod-' + g + '" title="' + esc(m.name + ' (' + m.group + ')') + '">' + esc(mid) + (opts && opts.name ? ' ' + esc(m.short) : '') + '</span>';
   }
   function ruleChip(rid, status) {
     var r = E.RULES[rid];
     var cls = status === 'fire' ? 'rule-fire' : status === 'pass' ? 'rule-pass' : '';
-    return '<span class="chip rule ' + cls + '" title="' + esc(r ? rid + ' ' + r.name : rid) + '">' + esc(rid) + '</span>';
+    return '<span class="chip rule code-tag ' + cls + '" title="' + esc(r ? rid + ' ' + r.name : rid) + '">' + esc(rid) + '</span>';
   }
   function obligationChip(oid) {
-    return '<span class="chip obl" title="Obligation row ' + esc(oid) + '">' + esc(oid) + '</span>';
+    return '<span class="chip obl code-tag" title="Obligation row ' + esc(oid) + '">' + esc(oid) + '</span>';
   }
 
   var STATUS_LABEL = {
@@ -179,19 +181,19 @@
 
   /* Plain-word explanations for the terms used on screen. Shown on hover, focus or tap of a dotted term. */
   var GLOSSARY = {
-    tier1: 'Tier 1, routine. PCAP found nothing unusual: the amount matches the loan schedule and no workaround is used. The approver reads one sentence and releases. No extra step.',
-    tier2: 'Tier 2, extra confirmation. Something is off, or a registered workaround is used. The approver re-keys the amount and the payment type from their own source, then ticks a confirmation.',
-    tier3: 'Tier 3, hard stop. The approver cannot release it. Only Operational Risk can, and only by recording a risk acceptance.',
-    wash: 'Wash account 9910: an internal Citi account. Money routed there stays inside the bank. The WA-01 workaround only keeps the principal in the bank when FRONT, FUND and PRINCIPAL all go there.',
-    legs: 'FRONT, FUND and PRINCIPAL are the three settlement legs of a loan payment in the core system. Each leg goes either to the lenders or to the wash account.',
-    rekey: 'Blind re-key: the approver types the amount and says what the payment is from their own source, before seeing the maker\'s figures or the checker\'s note. It stops one shared mistake passing three people.',
-    gate: 'Authority check (M3 gate, rules R-05 and R-06): the approver must be certified for the workaround, within their approval limit, independent of the maker and checker, and a Citi employee for override payments.',
-    acceptance: 'Risk acceptance: the record made when a Tier 3 payment is released anyway. It gives the reason and names the first-line risk owner. It covers this one payment and ends with the business day. Internal Audit reviews every one.',
-    dispensation: 'Dispensation: the date until which the bank accepts a workaround. After that date R-03 blocks any payment that uses it.',
-    override: 'Override (workaround): a manual way around a limit of the core system, such as WA-01 for interest-only payments. It can only be used if it is in the M1 register.',
-    r08: 'R-08 rubber-stamp score: a weekly team score from 0 to 100, built from fast looks, re-key slips and fast Tier 2 approvals. Team level only, teams of 3 or more. It never blocks a payment.',
+    tier1: 'Routine: the amount matches the loan schedule and no workaround is used. The approver reads one sentence and releases it. No extra step.',
+    tier2: 'Needs a closer look: something is a little off, or a workaround is used. The approver types the amount and the kind of payment from their own source, then ticks a confirmation.',
+    tier3: 'Stopped: the approver cannot release it. Only Operational Risk can, and only with a written risk sign-off.',
+    wash: 'Wash account: an internal account of the bank. Money sent there stays inside the bank. The interest-only workaround keeps the principal in the bank only when FRONT, FUND and PRINCIPAL all go there.',
+    legs: 'FRONT, FUND and PRINCIPAL are the three parts of a loan payment in the core system. Each part goes either out to the lenders or stays in the bank (the wash account).',
+    rekey: 'Your own figure: the approver types the amount and says what kind of payment it is from their own source, before seeing the maker\'s numbers or the checker\'s note. It stops one shared mistake getting past three people.',
+    gate: 'Who can approve: the approver must be certified for the workaround, within their approval limit, independent of the maker and checker, and work for the bank (not the outsourced provider) for workaround payments.',
+    acceptance: 'Risk sign-off (the report calls it a risk acceptance): the record made when a stopped payment is released anyway. It gives the reason and names the manager who owns the risk. It covers this one payment and ends with the day. Internal Audit reviews every one.',
+    dispensation: 'Dispensation: the date until which the bank accepts a workaround. After that date PCAP stops any payment that uses it.',
+    override: 'Workaround: a manual way around a limit of the core system, such as WA-01 for interest-only payments. It can only be used if it is on the workaround list.',
+    r08: 'Rubber-stamp score: a weekly team score from 0 to 100, built from quick looks, wrong first figures and quick approvals after a warning. Team level only, teams of 3 or more. It never blocks a payment.',
     recon: 'Same-day reconciliation: compares what left the bank today with what the loan schedules expected. A difference is called a break.',
-    kri: 'Key risk indicator (KRI): a number the Board Risk Committee watches against a threshold, with green, amber and red.',
+    kri: 'A number the Board watches against a limit, shown green, amber or red. The report calls these key risk indicators.',
     evidence: 'Evidence pack: every control event with its time, person, rule and obligation row, exported as JSON and CSV for Internal Audit or a regulator.',
     lines: 'Three lines of defence: the first line owns the risk (loan operations), the second line oversees and challenges it (Operational Risk, Compliance), the third line gives independent assurance (Internal Audit).',
     estimate: 'Estimate: worked out from the synthetic test model or a stated assumption, not measured with real staff. Counted figures come straight from the event log.'
@@ -207,7 +209,24 @@
     return '<span class="term' + (cls ? ' ' + cls : '') + '" tabindex="0" role="button" aria-label="' + esc(text + ': what this means') + '" data-term="' + esc(key) + '">' + esc(text) + '</span>';
   }
 
+  /* A card that folds away, for long tables and secondary detail. The summary line says what is inside. */
+  var CHEV = '<svg class="ico fold-chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4.5 6.2L8 9.7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function fold(title, meta, body, opts) {
+    opts = opts || {};
+    return '<details class="card fold plain-fold' + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.id ? ' id="' + opts.id + '"' : '') + (opts.open ? ' open' : '') + '><summary class="fold-sum"><h2>' + title + '</h2><span class="fold-meta">' + esc(meta) + '</span>' + CHEV + '</summary>' +
+      '<div class="fold-body">' + body + '</div></details>';
+  }
+  /* Recorded evidence text, in plain words unless report codes are on (js/plain.js). The stored text never changes. */
+  function codesOn() { return typeof document !== 'undefined' && document.documentElement.getAttribute('data-codes') === 'on'; }
+  function say(text) { return esc(codesOn() || !PCAP.plain ? text : PCAP.plain.plainText(text)); }
+  /* A report code as a small tag, shown only when "Show report codes" is on. */
+  function codeTag(text) { return '<span class="code-tag code-pill">' + esc(text) + '</span>'; }
+
   PCAP.util = {
+    fold: fold,
+    say: say,
+    codesOn: codesOn,
+    codeTag: codeTag,
     glossary: glossary,
     term: term,
     esc: esc,

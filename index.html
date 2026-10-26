@@ -11,8 +11,11 @@
     /* Theme before first paint: dark by default, the saved choice if storage allows it. */
     (function () {
       var t = 'dark';
-      try { var s = window.localStorage.getItem('pcap-theme'); if (s === 'light' || s === 'dark') t = s; } catch (e) {}
+      var codes = 'off';
+      try { var s = window.localStorage.getItem('pcap-theme'); if (s === 'light' || s === 'dark') t = s; if (window.localStorage.getItem('pcap-codes') === 'on') codes = 'on'; } catch (e) {}
       document.documentElement.setAttribute('data-theme', t);
+      /* Report codes (M1 to M6, R-01 to R-09) are hidden unless the person turned them on. */
+      document.documentElement.setAttribute('data-codes', codes);
       /* Fonts are local and small: hold the first paint until they are in, so nothing re-flows. Capped at 600 ms. */
       document.documentElement.setAttribute('data-fonts', 'loading');
       var show = function () { document.documentElement.removeAttribute('data-fonts'); };
@@ -48,13 +51,14 @@
         </svg>
       </div>
       <div class="brand-text">
-        <h1 class="app-title"><span class="brand-mark">PCAP</span><span class="brand-name">Payment Control Assurance Platform</span><span class="title-note">Prototype, synthetic data</span></h1>
-        <div class="app-sub">NUS IS4234 Group 4. An overlay on the core payment system, not a replacement. <span id="bizdate"></span></div>
+        <h1 class="app-title"><a class="brand-home" href="#/home"><span class="brand-mark">PCAP</span><span class="brand-name">Payment Control Assurance Platform</span></a><span class="title-note">Prototype, made-up data</span></h1>
+        <div class="app-sub">Shows what each payment will really do before it leaves the bank. <span id="bizdate"></span></div>
       </div>
     </div>
     <div class="header-controls">
-      <label class="role-pick"><span>Acting as</span><select id="role-select" aria-label="Acting as"></select></label>
+      <label class="role-pick"><span>You are</span><select id="role-select" aria-label="You are"></select></label>
       <span class="persona" id="persona"></span>
+      <button class="btn header-btn codes-btn" id="codes-btn" type="button" aria-pressed="false"><span class="codes-box" aria-hidden="true"></span><span>Show report codes</span></button>
       <button class="btn header-btn theme-btn" id="theme-btn" type="button" aria-label="Switch to light theme"><span class="theme-ico" aria-hidden="true"></span><span class="theme-label">Light</span></button>
       <button class="btn header-btn" id="reset-btn" type="button">Reset demo data</button>
     </div>
@@ -66,8 +70,9 @@
     <noscript><div class="card"><p>PCAP needs JavaScript. Open this page in a current browser such as Edge, Chrome, Firefox or Safari.</p></div></noscript>
   </main>
   <footer class="app-footer">
+    <p class="foot-links"><a href="#/about">About this prototype</a> (for markers: how it maps to our report) <span aria-hidden="true">·</span> <a href="#/home">Home and the guided tour</a></p>
     <p><strong>Synthetic data only.</strong> No real people, accounts or payments. The Revlon replay is a simplified synthetic rebuild of a public court case. Not connected to Flexcube or any bank system. Data is kept only in this browser.</p>
-    <p>Prototype for the IS4234 Group 4 report "Approved but Not Understood: Control Design Lessons from Citibank's Revlon Payment Error". Built with help from Claude Code (see README). Fonts: Space Grotesk, IBM Plex Sans and JetBrains Mono under the SIL Open Font License.</p>
+    <p>Prototype for the NUS IS4234 Group 4 report "Approved but Not Understood: Control Design Lessons from Citibank's Revlon Payment Error". An overlay on the core payment system, not a replacement. Built with help from Claude Code (see README). Fonts: Space Grotesk, IBM Plex Sans and JetBrains Mono under the SIL Open Font License.</p>
   </footer>
   <div id="viz-tooltip" class="viz-tooltip" role="tooltip" hidden></div>
   <div id="term-tip" class="term-tip" role="tooltip" hidden></div>
@@ -79,19 +84,22 @@
 
   <script src="data/seed-data.js"></script>
   <script src="js/engine.js"></script>
+  <script src="js/plain.js"></script>
   <script src="js/util.js"></script>
   <script src="js/store.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/motion.js"></script>
   <script src="js/views/value.js"></script>
   <script src="js/views/desk.js"></script>
-  <script src="js/views/guide.js"></script>
+  <script src="js/views/home.js"></script>
+  <script src="js/views/about.js"></script>
   <script src="js/views/register.js"></script>
   <script src="js/views/analytics.js"></script>
   <script src="js/views/monitor.js"></script>
   <script src="js/views/oversight.js"></script>
   <script src="js/views/synthetic.js"></script>
   <script src="js/views/events.js"></script>
+  <script src="js/tour.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -22,38 +22,38 @@
     var involved = E.involvedIn(pays.map(function (p) { return { releasedDate: p.releasedDate, makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId }; }), actor, today);
     var actions = {
       'CC-01': '<button class="btn small primary" data-act="recon"' + (isAudit ? ' disabled title="Read only: Operational Risk runs this control"' : '') + '>Run same-day reconciliation</button>',
-      'CC-02': '<a class="btn small" href="#/register">Open register</a>',
-      'CC-03': '<a class="btn small" href="#/register">Open register</a>',
-      'CC-04': '<button class="btn small" data-act="scroll-cert">See certifications</button>',
-      'CC-05': '<button class="btn small" data-act="queue">Open hard-stop queue</button>',
-      'CC-06': '<button class="btn small primary" data-act="regression"' + (isAudit ? ' disabled title="Read only: Operational Risk runs this control"' : '') + '>Run replay regression test</button>'
+      'CC-02': '<a class="btn small" href="#/register">Open workarounds</a>',
+      'CC-03': '<a class="btn small" href="#/register">Open workarounds</a>',
+      'CC-04': '<button class="btn small" data-act="scroll-cert">See certificates</button>',
+      'CC-05': '<button class="btn small" data-act="queue">Open stopped payments</button>',
+      'CC-06': '<button class="btn small primary" data-act="regression"' + (isAudit ? ' disabled title="Read only: Operational Risk runs this control"' : '') + '>Re-run the 2020 payment test</button>'
     };
-    var overallText = { green: 'All compensating controls ran and passed.', amber: 'Some controls need attention. Owners have been alerted.', red: 'At least one control failed or did not run. Escalate to the owner and the second line.' };
+    var overallText = { green: 'Every safety check ran and passed.', amber: 'Some checks need attention. Their owners can see it.', red: 'At least one check failed or did not run. Its owner needs to act, and Operational Risk follows it up.' };
 
     var cards = '<div class="cc-grid">' + defs.map(function (d) {
       var h = byId[d.id] || { rag: 'green', message: '' };
-      return '<div class="cc-card rag-border-' + h.rag + '"><div class="cc-head"><span class="cc-id">' + U.esc(d.id) + '</span>' + U.ragChip(h.rag) + '</div>' +
+      return '<div class="cc-card rag-border-' + h.rag + '"><div class="cc-head"><span class="cc-id code-tag">' + U.esc(d.id) + '</span>' + U.ragChip(h.rag) + '</div>' +
         '<div class="cc-name">' + U.esc(d.name) + '</div>' +
-        '<div class="cc-msg">' + U.esc(h.message) + '</div>' +
+        '<div class="cc-msg">' + U.say(h.message) + '</div>' +
         '<div class="cc-foot"><span class="small muted">Owner ' + U.esc(store.userName(d.ownerId)) + ', ' + U.esc(d.frequency.charAt(0).toLowerCase() + d.frequency.slice(1)) + '</span>' + (actions[d.id] || '') + '</div></div>';
     }).join('') + '</div>';
 
     var rec = E.reconcile(pays.map(function (p) { return { id: p.id, loanId: p.loanId, status: p.status, releasedDate: p.releasedDate, releasedExternal: p.releasedExternal, expectedAtRelease: p.expectedAtRelease, releasedBy: p.releasedBy }; }), today);
     var runs = st().reconRuns.slice(-5).reverse();
-    var recon = '<div class="card"><div class="card-head"><h2>Same-day reconciliation: released vs expected</h2><span class="muted small">Business date ' + U.esc(U.fmtDate(today)) + '</span></div>' +
-      (isAudit ? '<div class="banner info">' + U.icon('info') + '<span>' + (role === 'audit' ? 'As Internal Audit (third line) you review these results but do not run the controls, or you would be auditing your own work.' : 'You read these results but do not run the controls.') + ' Switch role to Operational Risk to run them.</span></div>' : '') +
+    var recon = '<div class="card"><div class="card-head"><h2>Today: what left the bank against what was due</h2><span class="muted small">Same-day reconciliation, ' + U.esc(U.fmtDate(today)) + '</span></div>' +
+      (isAudit ? '<div class="banner info">' + U.icon('info') + '<span>' + (role === 'audit' ? 'As Internal Audit you review these results but do not run the checks, or you would be auditing your own work.' : 'You read these results but do not run the checks.') + ' Operational Risk runs them.</span></div>' : '') +
       (involved && !isAudit ? '<div class="banner warn">' + U.icon('warn') + '<span>You (' + U.esc(store.userName(actor)) + ') took part in a payment released today, so a run by you will be logged as not independent. Switch role to Operational Risk.</span></div>' : '') +
       (rec.rows.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Loan</th><th>Released by</th><th class="num">Left the bank</th><th class="num">Schedule expected</th><th class="num">Difference</th><th>Status</th></tr></thead><tbody>' +
         rec.rows.map(function (r) {
           return '<tr><td><a href="#" data-open-payment="' + r.id + '">' + r.id + '</a></td><td>' + U.esc(r.loanId) + '</td><td>' + U.esc(store.userName(r.releasedBy)) + '</td><td class="num">' + U.esc(U.fmtUSD(r.released)) + '</td><td class="num">' + U.esc(U.fmtUSD(r.expected)) + '</td><td class="num' + (r.isBreak ? ' bad-text' : '') + '">' + (r.diff > 0 ? '+' : '') + U.esc(U.fmtUSD(r.diff)) + '</td><td>' + (r.isBreak ? U.ragChip('red', 'Break') : U.ragChip('green', 'Matched')) + '</td></tr>';
         }).join('') + '</tbody></table></div>' : '<p class="empty">Nothing released today yet.</p>') +
-      '<h3>Recent runs</h3>' +
+      '<details class="more"><summary>Recent runs (' + runs.length + ')<svg class="ico fold-chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.5 6.2L8 9.7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>' +
       (runs.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Time</th><th>Run by</th><th>Independent</th><th class="num">Payments</th><th class="num">Breaks</th></tr></thead><tbody>' +
-        runs.map(function (r) { return '<tr><td>' + U.esc(U.fmtDate(r.date)) + '</td><td>' + U.esc(r.time) + '</td><td>' + U.esc(store.userName(r.by)) + '</td><td>' + (r.independent ? U.ragChip('green', 'Yes') : U.ragChip('red', 'No')) + '</td><td class="num">' + r.rows + '</td><td class="num">' + (r.breaks ? '<strong>' + r.breaks + '</strong> (' + U.esc(U.fmtUSD(r.breakTotal)) + ')' : '0') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">No runs yet.</p>') +
+        runs.map(function (r) { return '<tr><td>' + U.esc(U.fmtDate(r.date)) + '</td><td>' + U.esc(r.time) + '</td><td>' + U.esc(store.userName(r.by)) + '</td><td>' + (r.independent ? U.ragChip('green', 'Yes') : U.ragChip('red', 'No')) + '</td><td class="num">' + r.rows + '</td><td class="num">' + (r.breaks ? '<strong>' + r.breaks + '</strong> (' + U.esc(U.fmtUSD(r.breakTotal)) + ')' : '0') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">No runs yet.</p>') + '</details>' +
       '<p class="muted small">At Citibank the error only surfaced at the cash-break review the next morning. Here the reconciliation runs the same day, by someone independent of the maker, against the expected amount.</p></div>';
 
     var approvers = st().ctx.users.filter(function (u) { return (u.roles || []).indexOf('approver') >= 0; });
-    var certs = '<div class="card" id="cert-table"><div class="card-head"><h2>Approver certifications and entitlements</h2><span class="muted small">Certification per override type, approval limit by consequence</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Approver</th><th>Employer and team</th><th class="num">Approval limit</th><th>Certification</th><th>Valid until</th><th>Status</th></tr></thead><tbody>' +
+    var certs = U.fold('Approver certificates and limits', 'Who is certified for which workaround, and how much each approver may release', '<div class="table-wrap"><table class="table"><thead><tr><th>Approver</th><th>Employer and team</th><th class="num">Approval limit</th><th>Certified for</th><th>Valid until</th><th>Status</th></tr></thead><tbody>' +
       approvers.map(function (u) {
         var c = (u.certs || [])[0];
         var status;
@@ -62,16 +62,15 @@
         else if (E.daysBetween(today, c.validUntil) <= 30) status = U.ragChip('amber', 'Expires in ' + E.daysBetween(today, c.validUntil) + ' days');
         else status = U.ragChip('green', 'Current');
         return '<tr><td>' + U.esc(u.name) + '<div class="small muted">' + U.esc(u.title) + '</div></td><td>' + U.esc(u.employer + ', ' + u.team) + '</td><td class="num">' + U.esc(U.fmtCompact(u.approvalLimit)) + '</td><td>' + (c ? U.esc(c.type) : '') + '</td><td>' + (c ? U.esc(U.fmtDate(c.validUntil)) : '') + '</td><td>' + status + '</td></tr>';
-      }).join('') + '</tbody></table></div><p class="muted small">The M3 gate (R-05) blocks override approvals by anyone without a current certification, so a lapsed certificate is amber here. It turns red only if an override approval ever happens without one.</p></div>';
+      }).join('') + '</tbody></table></div><p class="muted small">PCAP will not let anyone without a current certificate approve a workaround payment, so a lapsed certificate is amber here. It turns red only if such an approval ever happens. ' + U.codeTag('M3, R-05') + '</p>', { id: 'cert-table' });
 
     var reg = st().regressionRuns.slice(-5).reverse();
-    var tests = '<div class="card"><div class="card-head"><h2>Replay regression test log</h2><span class="muted small">Re-runs the Revlon replay through the live rules</span></div>' +
-      '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Run by</th><th>Result</th><th>Detail</th></tr></thead><tbody>' +
-      reg.map(function (r) { return '<tr><td>' + U.esc(U.fmtDate(r.date)) + '</td><td>' + U.esc(store.userName(r.by)) + '</td><td>' + (r.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</td><td class="small">' + U.esc(r.detail) + (r.hits ? '. Rules: ' + U.esc(r.hits.join(', ')) : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+    var tests = U.fold('2020 payment test log', 'Each run puts the 2020 payment through the live rules and checks PCAP still stops it', '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Run by</th><th>Result</th><th>Detail</th></tr></thead><tbody>' +
+      reg.map(function (r) { return '<tr><td>' + U.esc(U.fmtDate(r.date)) + '</td><td>' + U.esc(store.userName(r.by)) + '</td><td>' + (r.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</td><td class="small">' + U.esc(r.detail) + (r.hits ? '<span class="code-tag">. Rules: ' + U.esc(r.hits.join(', ')) + '</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>');
 
-    el.innerHTML = '<div class="page-head"><h1>' + U.moduleChip('M5') + ' Compensating Control Monitor</h1><p class="lede">Checks that the controls around the payment actually ran, every day, with an owner and a test. R-09 turns each one red, amber or green and feeds the Board KRIs in M6.</p>' +
-      '<p class="lede">A compensating control brings a risk back to an acceptable level when the main control cannot be fixed, here the core system that cannot pay interest only. These are the controls report 3.3.3 says were missing: the expected-amount reconciliation (R-01 and CC-01), the unscheduled principal hold (R-02), the governed workaround (M1, CC-02 and CC-03) and the certified in-house approver (M3, CC-04).</p></div>' +
-      '<div class="overall rag-border-' + health.overall + '"><div>' + U.ruleChip('R-09') + ' <strong>Control health</strong> ' + U.ragChip(health.overall, health.overall === 'green' ? 'Green' : health.overall === 'amber' ? 'Amber' : 'Red') + '</div><p>' + U.esc(overallText[health.overall]) + '</p></div>' +
+    var mineNotGreen = defs.filter(function (d) { return d.ownerId === actor && (byId[d.id] || {}).rag !== 'green'; }).length;
+    el.innerHTML = '<div class="page-head"><h1>Daily checks ' + U.moduleChip('M5') + '</h1>' + PCAP.views.nowLine('monitor', role, { n: mineNotGreen }) + '</div>' +
+      '<div class="overall rag-border-' + health.overall + '"><div><strong>All checks together</strong> ' + U.ragChip(health.overall, health.overall === 'green' ? 'Green' : health.overall === 'amber' ? 'Amber' : 'Red') + ' ' + U.ruleChip('R-09') + '</div><p>' + U.esc(overallText[health.overall]) + '</p></div>' +
       cards + recon + certs + tests;
 
     el.onclick = function (e) {
@@ -85,13 +84,13 @@
         PCAP.app.render();
       } else if (act === 'regression') {
         var r = store.runRegressionTest(actor);
-        U.toast('Replay regression test ' + (r.pass ? 'passed.' : 'failed.'), r.pass ? 'ok' : 'bad');
+        U.toast('2020 payment test ' + (r.pass ? 'passed: PCAP still stops it.' : 'failed.'), r.pass ? 'ok' : 'bad');
         PCAP.app.render();
       } else if (act === 'queue') {
         PCAP.app.setRole('oprisk', 'desk');
       } else if (act === 'scroll-cert') {
         var t = document.getElementById('cert-table');
-        if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (t) { t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       }
     };
   }

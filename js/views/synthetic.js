@@ -13,7 +13,7 @@
   var params = { seed: 4234, n: 500, errorPct: 5, stalePct: 1 };
 
   function sweepCard() {
-    var head = '<div class="card"><div class="card-head"><h2>Robustness across seeds</h2><span class="muted small">One seed is one draw of errors. This pools seeds 1 to 50 with the settings above.</span></div>';
+    var head = '<div class="card"><div class="card-head"><h2>Does it hold for other random draws?</h2><span class="muted small">One seed is one random draw of mistakes. This pools seeds 1 to 50.</span></div>';
     if (!sweep) {
       return head + '<p>The default seed 4234 was fixed before any results were known. To see how much the headline numbers depend on the draw, run the same test for 50 seeds.</p>' +
         '<div class="form-actions"><button class="btn" type="button" data-act="sweep">' + U.icon('play') + ' Run seeds 1 to 50</button></div></div>';
@@ -22,14 +22,14 @@
     function row(k, v) { return '<tr><th>' + U.esc(k) + '</th><td>' + U.esc(v) + '</td></tr>'; }
     return head + '<table class="table"><tbody>' +
       row('Stopped before release, pooled', a.stopped + ' of ' + a.errors + ' (' + pct(a.ratePooled) + '). Per seed: lowest ' + pct(a.rateMin) + ', median ' + pct(a.rateMedian) + ', highest ' + pct(a.rateMax) + '.') +
-      row('Tier 3 errors stopped', c.T3.stopped + ' of ' + c.T3.count) +
-      row('M3 gate errors stopped', c.GATE.stopped + ' of ' + c.GATE.count) +
-      row('Tier 2 errors stopped', c.T2.stopped + ' of ' + c.T2.count) +
-      row('Below-tolerance slips', c.BELOW.stopped + ' of ' + c.BELOW.count + ' stopped before release (they were already Tier 2), ' + c.BELOW.foundAfter + ' found the same day by M5') +
+      row('Big mistakes stopped (Tier 3)', c.T3.stopped + ' of ' + c.T3.count) +
+      row('Wrong approver blocked', c.GATE.stopped + ' of ' + c.GATE.count) +
+      row('Smaller mistakes stopped (Tier 2)', c.T2.stopped + ' of ' + c.T2.count) +
+      row('Tiny slips under USD 500', c.BELOW.stopped + ' of ' + c.BELOW.count + ' stopped before release (they already needed a closer look), ' + c.BELOW.foundAfter + ' found the same day by the reconciliation') +
       row('Missed entirely', String(a.missed)) +
-      row('False alarms on clean payments', a.falseAlarms + ' of ' + a.clean + ' (' + pct(a.falseAlarmRate) + '), ' + a.falseAlarmsHeld + ' held at Tier 3') +
+      row('False alarms on correct payments', a.falseAlarms + ' of ' + a.clean + ' (' + pct(a.falseAlarmRate) + '), ' + a.falseAlarmsHeld + ' stopped') +
       row('Revlon replay failures', a.replayFails + ' of ' + a.seeds) +
-      '</tbody></table><p class="muted small">The spread in the overall rate comes almost entirely from how many below-tolerance slips a seed happens to draw.</p>' +
+      '</tbody></table><p class="muted small">The spread in the overall rate comes almost entirely from how many tiny slips a seed happens to draw.</p>' +
       '<div class="form-actions"><button class="btn small" type="button" data-act="sweep">Run again</button></div></div>';
   }
 
@@ -44,7 +44,8 @@
 
   function metChip(t) {
     var val = t.id === 'time' ? (t.value == null ? 'n/a' : U.fmtSec(t.value)) : pct(t.value);
-    return '<div class="target"><div class="tg-label">' + U.esc(t.label) + '</div><div class="tg-value">' + U.esc(val) + '</div><div class="tg-foot"><span class="small muted">Target ' + U.esc(t.target) + '</span>' + (t.met ? U.ragChip('green', 'Met') : U.ragChip('red', 'Not met')) + '</div></div>';
+    var plainLabel = { tier3: 'Big mistakes stopped', overall: 'All planted mistakes stopped before release', fp: 'False alarms on correct payments', time: 'Approver time added when a payment needs a closer look (estimate)' }[t.id] || t.label;
+    return '<div class="target"><div class="tg-label">' + U.esc(plainLabel) + '</div><div class="tg-value">' + U.esc(val) + '</div><div class="tg-foot"><span class="small muted">Target ' + U.esc(t.target) + '</span>' + (t.met ? U.ragChip('green', 'Met') : U.ragChip('red', 'Not met')) + '</div></div>';
   }
 
   function tierCells(t) { return '<td class="num">' + t[1] + '</td><td class="num">' + t[2] + '</td><td class="num">' + t[3] + '</td><td class="num">' + t.gate + '</td>'; }
@@ -57,7 +58,7 @@
   function render(el) {
     if (!last) run();
     var r = last, s = r.summary;
-    var classes = { T3: 'Tier 3', GATE: 'M3 gate', T2: 'Tier 2', BELOW: 'Below tolerance' };
+    var classes = { T3: 'Big (Tier 3)', GATE: 'Wrong approver', T2: 'Smaller (Tier 2)', BELOW: 'Tiny slip' };
     var meas = measured();
 
     var controls = '<form class="card synth-controls" id="synth-form"><div class="form-grid four">' +
@@ -68,66 +69,68 @@
       '</div><div class="form-actions"><button class="btn primary" type="submit">' + U.icon('play') + ' Run synthetic test</button><button class="btn" type="button" data-act="download">' + U.icon('download') + ' Download results (JSON)</button>' +
       '<span class="muted small">Run ' + U.esc(String(r.summary.seed)) + ' fingerprint <span class="mono">' + U.esc(r.fingerprint) + '</span>. The same seed always gives the same batch and the same numbers.</span></div></form>';
 
-    var targets = '<div class="card"><div class="card-head"><h2>Results against the 5.8 targets</h2><span class="muted small">' + s.n + ' synthetic payments, ' + s.errorCount + ' injected errors, ' + s.cleanCount + ' clean (' + s.staleCount + ' read a stale schedule line), business days ' + U.esc(U.fmtDate(r.window.from)) + ' to ' + U.esc(U.fmtDate(r.window.to)) + '</span></div>' +
+    var targets = '<div class="card"><div class="card-head"><h2>Did PCAP meet our targets? ' + U.codeTag('report 5.8') + '</h2><span class="muted small">' + s.n + ' made-up payments, ' + s.errorCount + ' with a planted mistake, ' + s.cleanCount + ' correct (' + s.staleCount + ' read an out-of-date schedule line), business days ' + U.esc(U.fmtDate(r.window.from)) + ' to ' + U.esc(U.fmtDate(r.window.to)) + '</span></div>' +
       '<div class="targets">' + s.targets.map(metChip).join('') + '</div>' +
       '<div class="tiles">' +
-      tile('Stopped before release', s.detection.stoppedBeforeRelease + ' of ' + s.errorCount, pct(s.detection.rateBeforeRelease) + ' of injected errors') +
-      tile('Found the same day by M5 reconciliation', String(s.detection.foundAfterRelease), 'released, then caught as a reconciliation break') +
-      tile('Missed entirely', String(s.detection.missed), 'not stopped and not found by M5', s.detection.missed ? 'red' : 'green') +
-      tile('False alarms on clean payments', s.falseAlarms.count + ' of ' + s.cleanCount, pct(s.falseAlarms.rate) + ', all rules' + (s.falseAlarms.heldAtTier3 ? ', ' + s.falseAlarms.heldAtTier3 + ' held at Tier 3' : ', none held at Tier 3')) +
-      tile('Median added approver time, Tiers 2 and 3', U.fmtSec(s.time.medianTier23Sec), 'Tier 1 ' + U.fmtSec(s.time.medianTier1Sec) + '. Mean over all payments ' + U.fmtSec(s.time.meanAllSec) + '. Model estimate.') +
-      tile('Median Tier 3 hold with Operational Risk', s.time.medianHoldMin == null ? 'n/a' : s.time.medianHoldMin + ' min', 'second-line review time, model estimate') +
+      tile('Stopped before release', s.detection.stoppedBeforeRelease + ' of ' + s.errorCount, pct(s.detection.rateBeforeRelease) + ' of planted mistakes') +
+      tile('Found later the same day', String(s.detection.foundAfterRelease), 'released, then caught by the same-day reconciliation') +
+      tile('Missed entirely', String(s.detection.missed), 'not stopped and not found the same day', s.detection.missed ? 'red' : 'green') +
+      tile('False alarms', s.falseAlarms.count + ' of ' + s.cleanCount, pct(s.falseAlarms.rate) + (s.falseAlarms.heldAtTier3 ? ', ' + s.falseAlarms.heldAtTier3 + ' stopped' : ', none stopped')) +
+      tile('Approver time added', U.fmtSec(s.time.medianTier23Sec), 'when a payment needs a closer look. Routine ' + U.fmtSec(s.time.medianTier1Sec) + '. Average over all ' + U.fmtSec(s.time.meanAllSec) + '. Model estimate.') +
+      tile('Wait for Op Risk', s.time.medianHoldMin == null ? 'n/a' : s.time.medianHoldMin + ' min', 'on a stopped payment, median, model estimate') +
       '</div>' +
-      '<p class="muted small">Clean override payments routed to Tier 2 by policy, with no rule firing: ' + s.policyTier2Clean + '. These are not counted as false alarms but they do add time. Measured in this browser so far: ' + (meas.n ? meas.n + ' Tier 2 or 3 reviews, median ' + U.fmtSec(meas.median) + ' on the consequence screen.' : 'no Tier 2 or 3 reviews yet.') + '</p></div>';
+      '<p class="muted small">Correct workaround payments that get a closer look by policy, with no rule firing: ' + s.policyTier2Clean + '. These are not counted as false alarms but they do add time. Measured in this browser so far: ' + (meas.n ? meas.n + ' closer-look reviews, median ' + U.fmtSec(meas.median) + ' on screen.' : 'none yet.') + '</p></div>';
 
     var replay = r.replay;
-    var replayCard = '<div class="card replay ' + (replay.pass ? 'pass' : 'fail') + '"><div class="card-head"><h2>Revlon replay as a test case</h2>' + (replay.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</div>' +
-      '<p>' + U.esc(E.REPLAY.passRule) + '</p>' +
-      '<div class="replay-row"><div>' + U.tierBadge(replay.tier, { big: true }) + '</div><div>Rules fired: ' + replay.hits.map(function (h) { return U.ruleChip(h, 'fire'); }).join(' ') + '<div class="small muted">' + U.esc(replay.detail) + '. Blind re-key of USD 7,820,000: ' + U.esc(replay.rekey) + '.</div></div></div>' +
+    var replayCard = '<div class="card replay ' + (replay.pass ? 'pass' : 'fail') + '"><div class="card-head"><h2>The 2020 payment as a test</h2>' + (replay.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</div>' +
+      '<p>Passes only if PCAP stops the 2020 payment and shows the approver the principal that would leave. <span class="code-tag">' + U.esc(E.REPLAY.passRule) + '</span></p>' +
+      '<div class="replay-row"><div>' + U.tierBadge(replay.tier, { big: true }) + '</div><div><span class="code-tag">Rules fired: ' + replay.hits.map(function (h) { return U.ruleChip(h, 'fire'); }).join(' ') + '</span><div class="small muted">The approver types USD 7,820,000 of interest: ' + U.esc({ fire: 'it does not match, twice, so PCAP stops it', pass: 'it matches', retry: 'it does not match' }[replay.rekey] || replay.rekey) + '.</div></div></div>' +
       '<div class="statement st-tier-3"><div class="st-label">' + U.moduleChip('M2') + ' What the approver sees</div>' + replay.statement.map(function (x, i) { return '<p class="' + (i === 0 ? 'st-lead' : '') + '">' + U.emphasise(x) + '</p>'; }).join('') + '</div></div>';
 
-    var byType = '<div class="card"><div class="card-head"><h2>Detection by error type</h2><span class="muted small">Every payment ran through the real rules in js/engine.js</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Injected error</th><th>Class</th><th class="num">Count</th><th class="num">Stopped before release</th><th class="num">Found by M5</th><th class="num">Missed</th><th>Rules that fired</th><th class="num">T1</th><th class="num">T2</th><th class="num">T3</th><th class="num">Gate</th></tr></thead><tbody>' +
+    var byType = U.fold('Each kind of mistake', 'What PCAP did with each kind of planted mistake, through the same rules as Payments', '<div class="table-wrap"><table class="table"><thead><tr><th>Planted mistake</th><th>Size</th><th class="num">Count</th><th class="num">Stopped before release</th><th class="num">Found same day</th><th class="num">Missed</th><th class="code-col">Rules that fired</th><th class="num">Routine</th><th class="num">Closer look</th><th class="num">Stopped</th><th class="num">Wrong approver</th></tr></thead><tbody>' +
       r.byType.map(function (t) {
-        return '<tr><td>' + U.esc(t.label) + '</td><td>' + U.esc(classes[t.cls]) + '</td><td class="num">' + t.count + '</td><td class="num">' + t.stopped + '</td><td class="num">' + t.foundAfter + '</td><td class="num">' + (t.missed ? '<strong class="bad-text">' + t.missed + '</strong>' : '0') + '</td><td>' +
+        return '<tr><td>' + U.esc(t.label) + '</td><td>' + U.esc(classes[t.cls]) + '</td><td class="num">' + t.count + '</td><td class="num">' + t.stopped + '</td><td class="num">' + t.foundAfter + '</td><td class="num">' + (t.missed ? '<strong class="bad-text">' + t.missed + '</strong>' : '0') + '</td><td class="code-col">' +
           Object.keys(t.rules).sort().map(function (k) { return k === 'GATE' ? '<span class="chip gate gate-closed small">gate x' + t.rules[k] + '</span>' : U.ruleChip(k, 'fire') + '<span class="small muted">x' + t.rules[k] + '</span>'; }).join(' ') + '</td>' + tierCells(t.tiers) + '</tr>';
       }).join('') + '</tbody></table></div>' +
-      '<p class="muted small">T1, T2 and T3 are the final tiers after the blind re-key. Gate means the M3 gate blocked the approver. "Amount slip under USD 500" sits inside the R-01 tolerance by design, so it is released at Tier 1 unless the payment was already Tier 2, and the same-day reconciliation finds it.</p></div>';
+      '<p class="muted small">Routine, Closer look and Stopped are what PCAP decided after the approver typed their own figure. Wrong approver means PCAP blocked someone not allowed to approve. A slip under USD 500 is inside the tolerance by design, so it goes through as routine and the same-day reconciliation finds it. ' + U.codeTag('T1, T2, T3, M3 gate, R-01') + '</p>');
 
     var classItems = r.byClass.filter(function (c) { return c.count; }).map(function (c) {
-      return { label: c.label, value: c.rate == null ? 0 : Math.round(c.rate * 100), display: c.stopped + ' of ' + c.count + ' (' + pct(c.rate) + ')', tip: c.label + ': ' + c.stopped + ' of ' + c.count + ' stopped before release. ' + c.note };
+      var lab = classes[c.cls] || c.label;
+      return { label: lab, value: c.rate == null ? 0 : Math.round(c.rate * 100), display: c.stopped + ' of ' + c.count, tip: lab + ': ' + c.stopped + ' of ' + c.count + ' stopped before release.' };
     });
-    var classCard = '<div class="card"><div class="card-head"><h2>Stopped before release, by class</h2><span class="muted small">Percent of each class</span></div>' + C.hbars({ items: classItems, max: 100, ariaLabel: 'Share stopped before release by error class', labelWidth: 150 }) +
-      '<table class="table"><thead><tr><th>Payments</th><th class="num">Tier 1</th><th class="num">Tier 2</th><th class="num">Tier 3</th><th class="num">Gate</th></tr></thead><tbody>' +
-      '<tr><td>Clean (' + s.cleanCount + ')</td>' + tierCells(s.tiers.clean) + '</tr><tr><td>With an injected error (' + s.errorCount + ')</td>' + tierCells(s.tiers.error) + '</tr></tbody></table></div>';
+    var classCard = '<div class="card"><div class="card-head"><h2>Stopped before release, by size of mistake</h2><span class="muted small">Percent of each kind</span></div>' + C.hbars({ items: classItems, max: 100, ariaLabel: 'Share stopped before release by size of mistake', labelWidth: 150 }) +
+      '<table class="table"><thead><tr><th>Payments</th><th class="num">Routine</th><th class="num">Closer look</th><th class="num">Stopped</th><th class="num">Wrong approver</th></tr></thead><tbody>' +
+      '<tr><td>Correct (' + s.cleanCount + ')</td>' + tierCells(s.tiers.clean) + '</tr><tr><td>With a planted mistake (' + s.errorCount + ')</td>' + tierCells(s.tiers.error) + '</tr></tbody></table></div>';
 
-    var cov = '<div class="card"><div class="card-head"><h2>Rule coverage</h2><span class="muted small">Each rule has at least one test case</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Rule</th><th>Fired on errors</th><th>Fired on clean payments</th><th>Test cases</th></tr></thead><tbody>' +
+    var cov = '<div class="card code-tag"><div class="card-head"><h2>Rule coverage</h2><span class="muted small">Each rule has at least one test case</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Rule</th><th>Fired on errors</th><th>Fired on clean payments</th><th>Test cases</th></tr></thead><tbody>' +
       r.coverage.map(function (c) {
         var onErr = c.rule === 'R-08' ? (c.teamsFlagged.length ? c.teamsFlagged.join(', ') : 'no team flagged') : c.rule === 'R-09' ? c.reconBreaks + ' reconciliation breaks (' + c.rag + ')' : String(c.onErrors);
         var onClean = c.rule === 'R-08' || c.rule === 'R-09' ? (c.rule === 'R-09' ? String(c.onClean) : 'n/a') : String(c.onClean);
         return '<tr><td>' + U.ruleChip(c.rule) + ' ' + U.esc(c.name) + '</td><td>' + U.esc(onErr) + '</td><td>' + U.esc(onClean) + '</td><td class="small">' + U.esc(c.targetedBy.join(', ')) + '</td></tr>';
       }).join('') + '</tbody></table></div></div>';
 
-    var fa = '<div class="card"><div class="card-head"><h2>False alarms</h2><span class="muted small">Clean payments where a rule fired</span></div>' +
-      (r.falseAlarmRecords.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Why</th><th>Rules</th><th>Final tier</th><th>Outcome</th></tr></thead><tbody>' +
-        r.falseAlarmRecords.map(function (x) { return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + (x.stale ? 'Stale schedule line' : 'Other') + '</td><td>' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + '</td><td>' + U.tierBadge(x.finalTier, { noLabel: true }) + '</td><td class="small">' + U.esc(x.outcome === 'RELEASED' ? 'Released after the blind re-key matched' : x.outcome) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">None.</p>') +
-      '<p class="muted small">PCAP is only as good as the loan schedules it reads, so every stale schedule line shows up as a variance. That is limitation one in report 5.9.</p></div>';
+    var fa = '<div class="card"><div class="card-head"><h2>False alarms</h2><span class="muted small">Correct payments where PCAP raised a flag</span></div>' +
+      (r.falseAlarmRecords.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Why</th><th class="code-col">Rules</th><th>PCAP found</th><th>Outcome</th></tr></thead><tbody>' +
+        r.falseAlarmRecords.map(function (x) { return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + (x.stale ? 'Out-of-date schedule line' : 'Other') + '</td><td class="code-col">' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + '</td><td>' + U.tierBadge(x.finalTier, { noLabel: true }) + '</td><td class="small">' + U.esc(x.outcome === 'RELEASED' ? 'Released after the approver\'s figure matched' : x.outcome) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">None.</p>') +
+      '<p class="muted small">PCAP is only as good as the loan schedules it reads, so an out-of-date schedule line shows up as a difference. ' + U.codeTag('report 5.9, limitation one') + '</p></div>';
 
-    var r08 = '<div class="card"><div class="card-head"><h2>R-08 on the simulated approvers</h2><span class="muted small">Citi Approvers TPA is given rubber-stamp behaviour</span></div><div class="table-wrap"><table class="table"><thead><tr><th>Team</th><th class="num">Tier 2 and 3 reviews</th><th class="num">Fast looks</th><th class="num">Slips</th><th class="num">Fast Tier 2 approvals</th><th class="num">Score</th></tr></thead><tbody>' +
-      r.r08.map(function (t) { return '<tr><td>' + U.esc(t.team) + '</td><td class="num">' + t.nTier23 + '</td><td class="num">' + U.fmtPctPlain(t.fastLookShare, 0) + '</td><td class="num">' + t.nSlips + '</td><td class="num">' + U.fmtPctPlain(t.fastApproveShare, 0) + '</td><td class="num">' + t.score + ' ' + U.ragChip(t.rag) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+    var r08 = U.fold('Rubber-stamp score on the made-up approvers', 'One made-up team (Citi Approvers TPA) is given careless habits', '<div class="table-wrap"><table class="table"><thead><tr><th>Team</th><th class="num">Closer-look reviews</th><th class="num">Quick looks</th><th class="num">Wrong first figures</th><th class="num">Quick approvals after a warning</th><th class="num">Score</th></tr></thead><tbody>' +
+      r.r08.map(function (t) { return '<tr><td>' + U.esc(t.team) + '</td><td class="num">' + t.nTier23 + '</td><td class="num">' + U.fmtPctPlain(t.fastLookShare, 0) + '</td><td class="num">' + t.nSlips + '</td><td class="num">' + U.fmtPctPlain(t.fastApproveShare, 0) + '</td><td class="num">' + t.score + ' ' + U.ragChip(t.rag) + '</td></tr>'; }).join('') + '</tbody></table></div>');
 
-    var errs = '<div class="card"><details><summary><h2>All ' + r.errorRecords.length + ' injected errors</h2><span class="muted small">Open to see each one</span></summary><div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Error</th><th>Detail</th><th>Rules</th><th>Final tier</th><th>Outcome</th></tr></thead><tbody>' +
+    var errs = '<div class="card"><details><summary><h2>All ' + r.errorRecords.length + ' planted mistakes</h2><span class="muted small">Open to see each one</span></summary><div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Mistake</th><th>Detail</th><th class="code-col">Rules</th><th>PCAP found</th><th>Outcome</th></tr></thead><tbody>' +
       r.errorRecords.map(function (x) {
         var t = E.ERROR_TYPES.filter(function (y) { return y.id === x.error; })[0];
-        var out = { GATE_BLOCK: 'Blocked at M3 gate', HELD_REJECTED: 'Held, rejected by Op Risk', HELD_RELEASED: 'Held, released by Op Risk', RELEASED: Math.abs(x.reconBreak) >= 0.01 ? 'Released, M5 break ' + E.fmtUSD(x.reconBreak) : 'Released' }[x.outcome];
-        return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + U.esc(t ? t.label : x.error) + '</td><td class="small">' + U.esc(x.variant || '') + '</td><td>' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + (x.gateOpen ? '' : ' <span class="chip gate gate-closed small">gate</span>') + '</td><td>' + (x.gateOpen ? U.tierBadge(x.finalTier, { noLabel: true }) : '') + '</td><td class="small">' + U.esc(out) + '</td></tr>';
+        var out = { GATE_BLOCK: 'Wrong approver blocked', HELD_REJECTED: 'Stopped, rejected by Op Risk', HELD_RELEASED: 'Stopped, released by Op Risk', RELEASED: Math.abs(x.reconBreak) >= 0.01 ? 'Released, found same day: ' + E.fmtUSD(x.reconBreak) : 'Released' }[x.outcome];
+        return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + U.esc(t ? t.label : x.error) + '</td><td class="small">' + U.esc(x.variant || '') + '</td><td class="code-col">' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + (x.gateOpen ? '' : ' <span class="chip gate gate-closed small">gate</span>') + '</td><td>' + (x.gateOpen ? U.tierBadge(x.finalTier, { noLabel: true }) : '') + '</td><td class="small">' + U.esc(out) + '</td></tr>';
       }).join('') + '</tbody></table></div></details></div>';
 
-    var assumptions = '<div class="card notes"><h2>Assumptions behind these numbers</h2><ul>' + r.assumptions.map(function (a) { return '<li>' + U.esc(a) + '</li>'; }).join('') +
-      '<li>Approver time model (seconds): normal teams read Tier 1 in 5 to 15, Tier 2 and 3 in 10 to 30, re-key in 15 to 40, confirm in 3 to 8, retry in 20 to 40. The rubber-stamp team reads in 1 to 6.</li>' +
-      '<li>Synthetic tests only show that PCAP catches errors we imagined. The next real error may look different. A timed walk-through with volunteer approvers is still needed for added time.</li></ul></div>';
+    var assumptions = U.fold('Assumptions behind these numbers', 'How the made-up payments and approver times were generated', '<ul class="lines-list">' + r.assumptions.map(function (a) { return '<li>' + U.esc(a) + '</li>'; }).join('') +
+      '<li>Approver time model (seconds): normal teams read a routine payment in 5 to 15, a closer-look payment in 10 to 30, type their own figure in 15 to 40, confirm in 3 to 8, retry in 20 to 40. The careless team reads in 1 to 6.</li>' +
+      '<li>Made-up tests only show that PCAP catches mistakes we imagined. The next real one may look different. A timed walk-through with volunteer approvers is still needed for added time.</li></ul>');
 
-    el.innerHTML = '<div class="page-head"><h1>Synthetic test (report 5.8)</h1><p class="lede">A seeded batch of synthetic payments with injected errors, run through the same engine as the payment desk. The numbers are shown as they come out, whether or not they meet the targets.</p></div>' +
-      controls + targets + sweepCard() + '<div class="grid-2">' + replayCard + classCard + '</div>' + byType + '<div class="grid-2">' + cov + fa + '</div>' + '<div class="grid-2">' + r08 + assumptions + '</div>' + errs;
+    el.innerHTML = '<div class="page-head"><h1>Test results ' + U.codeTag('report 5.8') + '</h1>' + PCAP.views.nowLine('synthetic', st().role) + '</div>' +
+      targets + '<div class="grid-2">' + replayCard + classCard + '</div>' + fa + byType + sweepCard() + cov + r08 + assumptions + errs +
+      U.fold('Run it again with other settings', 'Seed ' + params.seed + ', ' + params.n + ' payments, ' + params.errorPct + '% planted mistakes', controls.replace('<form class="card synth-controls"', '<form class="synth-controls"'));
 
     el.onsubmit = function (e) {
       if (e.target.id !== 'synth-form') return;

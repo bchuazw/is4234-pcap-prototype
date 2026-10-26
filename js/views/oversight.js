@@ -45,12 +45,12 @@
     var k = s.kri;
     function rag3(v, g, a) { return v == null ? 'green' : v <= g ? 'green' : v <= a ? 'amber' : 'red'; }
     return [
-      { label: 'Releases on an unregistered workaround', value: String(unreg), target: 'Target 0', rag: unreg ? 'red' : 'green', hist: k.unregisteredReleases.concat([unreg]) },
+      { label: 'Released with a workaround not on the list', value: String(unreg), target: 'Target 0', rag: unreg ? 'red' : 'green', hist: k.unregisteredReleases.concat([unreg]) },
       { label: 'Escapes: errors found after release', value: String(Object.keys(escapes).length), target: 'Target 0, each root-caused', rag: Object.keys(escapes).length ? 'red' : 'green', hist: k.escapes.concat([Object.keys(escapes).length]) },
-      { label: 'Tier 3 holds this week', value: String(holds), target: 'Watch for spikes', rag: rag3(holds, 5, 10), hist: k.tier3Holds.concat([holds]) },
-      { label: 'Share of holds that were real errors', value: realShare == null ? 'n/a' : U.fmtPctPlain(realShare, 0), target: 'Green at 50% or more', rag: realShare == null ? 'green' : realShare >= 0.5 ? 'green' : realShare >= 0.25 ? 'amber' : 'red', hist: k.holdsRealShare.concat([realShare == null ? k.holdsRealShare[k.holdsRealShare.length - 1] : realShare]), pct: true },
-      { label: 'Legacy workarounds needing attention (R6 roadmap)', value: String(legacy.length) + ' of ' + active.length, target: legacy.length ? legacy.map(function (r) { return r.id; }).join(', ') + ': dispensation due or review late' : 'Each has an owner, a refresh plan and an in-date dispensation', rag: legacy.length === 0 ? 'green' : legacy.length <= 2 ? 'amber' : 'red', hist: k.legacyAttention.concat([legacy.length]) },
-      { label: 'Highest team R-08 score', value: worst ? String(worst.score) : 'n/a', target: worst ? worst.team : '', rag: worst ? worst.rag : 'green', hist: worstHist.concat([worst ? worst.score : 0]) },
+      { label: 'Payments stopped this week', value: String(holds), target: 'Watch for spikes', rag: rag3(holds, 5, 10), hist: k.tier3Holds.concat([holds]) },
+      { label: 'Stopped payments that were real errors', value: realShare == null ? 'n/a' : U.fmtPctPlain(realShare, 0), target: 'Green at 50% or more', rag: realShare == null ? 'green' : realShare >= 0.5 ? 'green' : realShare >= 0.25 ? 'amber' : 'red', hist: k.holdsRealShare.concat([realShare == null ? k.holdsRealShare[k.holdsRealShare.length - 1] : realShare]), pct: true },
+      { label: 'Workarounds needing attention', code: 'R6 roadmap', value: String(legacy.length) + ' of ' + active.length, target: legacy.length ? legacy.map(function (r) { return r.id; }).join(', ') + ': dispensation due or review late' : 'Each has an owner, a refresh plan and an in-date dispensation', rag: legacy.length === 0 ? 'green' : legacy.length <= 2 ? 'amber' : 'red', hist: k.legacyAttention.concat([legacy.length]) },
+      { label: 'Highest rubber-stamp score', code: 'R-08', value: worst ? String(worst.score) : 'n/a', target: worst ? worst.team : '', rag: worst ? worst.rag : 'green', hist: worstHist.concat([worst ? worst.score : 0]) },
       { label: 'Lapsed approver certifications', value: String(lapsed), target: 'Target 0', rag: lapsed === 0 ? 'green' : lapsed <= 2 ? 'amber' : 'red', hist: k.lapsedCerts.concat([lapsed]) },
       { label: 'Late reconciliations, last 30 days', value: String(late), target: 'Target 0', rag: late === 0 ? 'green' : late === 1 ? 'amber' : 'red', hist: k.lateRecons.concat([late]) }
     ];
@@ -144,16 +144,16 @@
     var isAudit = role === 'audit';
     var list = store.riskAcceptances();
     var open = list.filter(function (x) { return !x.acceptance.review; }).length;
-    var body = list.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Acceptance</th><th>Internal Audit review</th><th>Payment</th><th>Why</th><th>Risk owner (first line)</th><th>Recorded by (second line)</th><th>What PCAP found</th><th>Expires</th><th>Follow-up</th></tr></thead><tbody>' +
+    var body = list.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Sign-off</th><th>Internal Audit review</th><th>Payment</th><th>Why it was released</th><th>Manager who owns the risk</th><th>Recorded by</th><th>What PCAP found</th><th>Ends</th><th>Follow-up</th></tr></thead><tbody>' +
       list.map(function (x) {
         var a = x.acceptance, as = a.assessed || {};
-        return '<tr><td class="mono">' + U.esc(a.id) + '</td><td>' + reviewCell(a, isAudit) + '</td><td><a href="#" data-open-payment="' + U.esc(a.paymentId) + '">' + U.esc(a.paymentId) + '</a></td><td class="small">' + U.esc(a.category) + '. ' + U.esc(a.reason) + '</td><td>' + U.esc(store.userName(a.ownerId)) + '</td><td>' + U.esc(store.userName(a.recordedById)) + '</td><td class="small">Tier ' + U.esc(as.tier) + (as.rules && as.rules.length ? ', ' + U.esc(as.rules.join(', ')) : '') + '. ' + U.esc(U.fmtCompact(as.external)) + ' out, ' + U.esc(U.fmtCompact(as.expected)) + ' expected</td><td>' + U.esc(U.fmtDate(a.expires)) + '</td><td class="small">' + U.esc(a.followUp) + '</td></tr>';
+        return '<tr><td class="mono">' + U.esc(a.id) + '</td><td>' + reviewCell(a, isAudit) + '</td><td><a href="#" data-open-payment="' + U.esc(a.paymentId) + '">' + U.esc(a.paymentId) + '</a></td><td class="small">' + U.esc(a.category) + '. ' + U.esc(a.reason) + '</td><td>' + U.esc(store.userName(a.ownerId)) + '</td><td>' + U.esc(store.userName(a.recordedById)) + '</td><td class="small">' + U.esc(PCAP.plain.tier(as.tier).label) + (as.rules && as.rules.length ? '<span class="code-tag">, Tier ' + U.esc(as.tier) + ', ' + U.esc(as.rules.join(', ')) + '</span>' : '') + '. ' + U.esc(U.fmtCompact(as.external)) + ' out, ' + U.esc(U.fmtCompact(as.expected)) + ' expected</td><td>' + U.esc(U.fmtDate(a.expires)) + '</td><td class="small">' + U.say(a.followUp) + '</td></tr>';
       }).join('') + '</tbody></table></div>'
-      : '<p class="empty">No Tier 3 payment has been released yet, so there is nothing to review. If Operational Risk releases one, its risk acceptance appears here' + (isAudit ? ' and this screen\'s tab shows a count.' : '.') + '</p>';
-    return '<div class="card" id="acceptances"><div class="card-head"><h2>Risk acceptances for Internal Audit review</h2><span class="muted small">' +
-      (list.length ? (open ? open + ' of ' + list.length + ' still to review' : 'All ' + list.length + ' reviewed') : 'Every Tier 3 release, with its owner, reason, scope and expiry') + '</span></div>' + body +
-      '<p class="muted small">L5: a risk the bank accepts must show it was assessed and why it was accepted. PCAP\'s checks are the assessment, the first-line owner accepts, Operational Risk records it, and Internal Audit reviews all of them. Each one covers a single payment and ends with the business day, so there are no standing approvals.' +
-      (isAudit ? ' Your review is logged in the event log and the evidence pack. Open the payment to see its full evidence trail first.' : '') + '</p></div>';
+      : '<p class="empty">No stopped payment has been released yet, so there is nothing to review. If Operational Risk releases one, its sign-off appears here' + (isAudit ? ' and this screen\'s tab shows a count.' : '.') + '</p>';
+    return '<div class="card" id="acceptances"><div class="card-head"><h2>Risk sign-offs for Internal Audit to review</h2><span class="muted small">' +
+      (list.length ? (open ? open + ' of ' + list.length + ' still to review' : 'All ' + list.length + ' reviewed') : 'Every stopped payment released anyway, with its owner, reason and end date') + '</span></div>' + body +
+      '<p class="muted small">When a stopped payment is released anyway, the bank is accepting a risk. Each sign-off covers one payment and ends with the day, so nothing is approved in advance.' +
+      (isAudit ? ' Your review is recorded in the activity log and the evidence pack. Open the payment to see its full trail first.' : '') + ' ' + U.codeTag('L5 risk acceptance') + '</p></div>';
   }
 
   /* ------------------------------------------------------------ render */
@@ -175,44 +175,41 @@
     var V = PCAP.views.value;
     var red = k.filter(function (x) { return x.rag === 'red'; }).length, amber = k.filter(function (x) { return x.rag === 'amber'; }).length;
 
-    var board = '<div class="card" id="board"><div class="card-head"><h2>Board Risk Committee view</h2><span class="muted small">Key risk indicators, last 8 weeks. Thresholds reviewed quarterly.</span></div>' +
-      '<p class="board-sum">' + U.icon(red ? 'stop' : amber ? 'warn' : 'check') + '<span><strong>' + (red ? red + ' KRI' + (red === 1 ? ' is' : 's are') + ' red' : amber ? 'No KRI is red' : 'All KRIs are green') + (amber ? ', ' + amber + ' amber' : '') + '.</strong> ' +
-      'Overall control health (R-09) is ' + U.esc(health.overall) + '. Red and amber items are listed first.</span></p>' +
+    var board = '<div class="card" id="board"><div class="card-head"><h2>What the Board watches</h2><span class="muted small">Last 8 weeks. Limits reviewed every quarter.</span></div>' +
+      '<p class="board-sum">' + U.icon(red ? 'stop' : amber ? 'warn' : 'check') + '<span><strong>' + (red ? red + (red === 1 ? ' number is' : ' numbers are') + ' red' : amber ? 'Nothing is red' : 'Everything is green') + (amber ? ', ' + amber + ' amber' : '') + '.</strong> ' +
+      'The daily checks overall are ' + U.esc(health.overall) + '. Worst first. ' + U.codeTag('KRIs, R-09') + '</span></p>' +
       '<div class="kri-grid">' + k.slice().sort(function (a, b) { var o = { red: 0, amber: 1, green: 2 }; return o[a.rag] - o[b.rag]; }).map(function (x) {
-        return '<div class="kri"><div class="kri-top"><span class="kri-label">' + U.esc(x.label) + '</span>' + U.ragChip(x.rag) + '</div><div class="kri-value">' + U.esc(x.value) + '</div><div class="kri-foot"><span class="small muted">' + U.esc(x.target) + '</span>' + C.sparkline(x.hist) + '</div></div>';
+        return '<div class="kri"><div class="kri-top"><span class="kri-label">' + U.esc(x.label) + (x.code ? ' ' + U.codeTag(x.code) : '') + '</span>' + U.ragChip(x.rag) + '</div><div class="kri-value">' + U.esc(x.value) + '</div><div class="kri-foot"><span class="small muted">' + U.esc(x.target) + '</span>' + C.sparkline(x.hist) + '</div></div>';
       }).join('') + '</div>' +
-      '<p class="muted small">Earlier weeks are synthetic history. This week is live from the event log. A ' + U.term('kri', 'KRI') + ' is a number the Board watches against a threshold.</p>' +
+      '<p class="muted small">Earlier weeks are made-up history. This week is live from the activity log. Each ' + U.term('kri', 'number') + ' has a limit, shown green, amber or red.</p>' +
       (V ? V.boardCard() : '') + '</div>';
 
-    var map = '<div class="card"><div class="card-head"><h2>Obligation, control and evidence map</h2><span class="muted small">Rows from Table 4 of the report. Live evidence is counted from the event log.</span></div><div class="table-wrap"><table class="table obl-table"><thead><tr><th>Row</th><th>Obligation (source)</th><th>Risk</th><th>Control</th><th>Rules</th><th>Evidence it works</th><th>Live evidence now</th><th>Status</th></tr></thead><tbody>' +
+    var map = U.fold('Which rule each control serves, with live evidence', 'Each regulator rule, the control that meets it, and how much evidence PCAP has recorded', '<p class="muted small">Rows follow Table 4 of the report. Live evidence is counted from the activity log.</p><div class="table-wrap"><table class="table obl-table"><thead><tr><th class="code-col">Row</th><th>Rule from the regulator</th><th>Risk</th><th>Control</th><th class="code-col">Rules</th><th>Evidence it works</th><th>Live evidence now</th><th>Status</th></tr></thead><tbody>' +
       rows.map(function (r) {
         var o = r.o;
-        return '<tr><td>' + U.obligationChip(o.id) + '</td><td><strong>' + U.esc(o.source) + '</strong><div class="small muted">' + U.esc(o.topic) + '</div></td><td>' + U.esc(o.risk) + '</td><td>' + U.esc(o.control) + '<div>' + o.modules.map(function (m) { return U.moduleChip(m); }).join(' ') + '</div></td><td>' + o.rules.map(function (x) { return U.ruleChip(x); }).join(' ') + '</td><td>' + U.esc(o.evidence) + '</td><td class="small">' + U.esc(r.live.text) + '</td><td>' + U.ragChip(r.live.rag) + '</td></tr>';
+        return '<tr><td class="code-col">' + U.obligationChip(o.id) + '</td><td><strong>' + U.esc(o.topic) + '</strong><div class="small muted">' + U.esc(o.source) + '</div></td><td>' + U.esc(o.risk) + '</td><td>' + U.esc(o.control) + '<div>' + o.modules.map(function (m) { return U.moduleChip(m); }).join(' ') + '</div></td><td class="code-col">' + o.rules.map(function (x) { return U.ruleChip(x); }).join(' ') + '</td><td>' + U.esc(o.evidence) + '</td><td class="small">' + U.esc(r.live.text) + '</td><td>' + U.ragChip(r.live.rag) + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
-      '<p class="muted small">Table 4 does not name M4. The prototype maps M4\'s R-08 to rows O2 (re-key mismatch rate) and O5 (monitoring of outsourced staff).</p></div>';
+      '<p class="muted small code-tag">Table 4 does not name M4. The prototype maps M4\'s R-08 to rows O2 (re-key mismatch rate) and O5 (monitoring of outsourced staff).</p>', { id: 'obligation-map' });
 
-    var charts = '<div class="grid-2">' +
+    /* Evidence counted by module and rule: report material, so only shown with report codes on. */
+    var charts = '<div class="grid-2 code-tag">' +
       '<div class="card"><div class="card-head"><h2>Evidence events by module</h2><span class="muted small">' + s.events.length + ' events in the log</span></div>' + C.hbars({ items: byModule, ariaLabel: 'Events by module', labelWidth: 190 }) + '</div>' +
       '<div class="card"><div class="card-head"><h2>Evidence events by rule</h2><span class="muted small">Passes and fires both count as evidence</span></div>' + C.hbars({ items: byRule, ariaLabel: 'Events by rule', labelWidth: 210 }) + '</div>' +
       '</div>';
 
-    var exportCard = '<div class="card export" id="export"><div class="card-head"><h2><span>Audit ' + U.term('evidence', 'evidence pack') + '</span></h2></div>' +
-      '<p>One file for Internal Audit (third line) or a regulator: the obligation map with live status, rule definitions, control health, KRIs, every risk acceptance and its review, a payment summary and every tagged event. Internal Audit can test every payment instead of a sample.</p>' +
-      '<div class="form-actions"><button class="btn primary" data-act="export">' + U.icon('download') + ' Export evidence pack</button>' +
+    var exportCard = '<div class="card export" id="export"><div class="card-head"><h2><span>The ' + U.term('evidence', 'evidence pack') + '</span></h2></div>' +
+      '<p>One download with every step PCAP recorded, every risk sign-off and its review, the Board numbers and the rules. Internal Audit can test every payment instead of a sample.</p>' +
+      '<div class="form-actions"><button class="btn primary" data-act="export">' + U.icon('download') + ' Download evidence pack</button>' +
       '<button class="btn small" data-act="export-json">JSON only</button><button class="btn small" data-act="export-csv">CSV only</button></div>' +
-      '<p class="muted small">Downloads pcap-evidence-pack-' + s.businessDate + '.json and .csv. The export itself is logged.</p><pre id="export-preview" class="preview" hidden></pre></div>';
-    var cadence = '<div class="card"><div class="card-head"><h2>Reporting cadence</h2></div><table class="table"><tbody>' +
-      '<tr><th>Daily</th><td>Hold list, same-day reconciliation, hard-stop queue cleared, control health (M2, M5)</td></tr>' +
-      '<tr><th>Monthly</th><td>Second-line control report: team rubber-stamp scores and re-key slip rates (M4), replay regression test, certification currency, register reviews due (M1, M5)</td></tr>' +
-      '<tr><th>Quarterly</th><td>Board KRI pack, threshold review against the false-alarm KRI, dispensation renewals and the legacy roadmap (M1, M6). Internal Audit reviews every risk acceptance and the M4 individual-view log</td></tr>' +
-      '<tr><th>On request</th><td>Evidence pack for Internal Audit and regulators</td></tr></tbody></table></div>';
-
-    var head = '<div class="page-head"><h1>' + U.moduleChip('M6') + ' Obligation Map and Oversight Dashboard</h1><p class="lede">Every rule result, confirmation, hold and release is stamped with the time, the person and the obligation it serves. That turns "three people approved it" into evidence of what they approved and whether the controls around them worked.</p></div>' +
+      '<p class="muted small">Downloads pcap-evidence-pack-' + s.businessDate + '.json and .csv. The download itself is recorded.</p><pre id="export-preview" class="preview" hidden></pre></div>';
+    var openReviews = store.riskAcceptances().filter(function (x) { return !x.acceptance.review; }).length;
+    var head = '<div class="page-head"><h1>Board and audit ' + U.moduleChip('M6') + '</h1>' + PCAP.views.nowLine('oversight', role, { n: openReviews, red: red }) + '</div>' +
       (V && (role === 'audit' || role === 'board') ? V.strip(role) : '');
-    /* Each role sees its own work first: Internal Audit its reviews and the export, everyone else the Board view. */
+    /* Each role sees its own work first: Internal Audit its reviews and the download, everyone else the Board view.
+       The reporting cadence moved to the About page. */
     var body = role === 'audit'
-      ? acceptanceCard(role) + '<div class="grid-2">' + exportCard + cadence + '</div>' + board + map + charts
-      : board + map + charts + acceptanceCard(role) + '<div class="grid-2">' + exportCard + cadence + '</div>';
+      ? acceptanceCard(role) + exportCard + board + map + charts
+      : board + acceptanceCard(role) + exportCard + map + charts;
     el.innerHTML = head + body;
 
     el.onclick = function (e) {
@@ -228,7 +225,7 @@
         }
         try {
           var acc = store.auditReviewAcceptance(pid, store.roleUserId(s.role), act === 'ra-finding' ? 'finding' : 'no-issue', note);
-          U.toast(acc.id + (act === 'ra-finding' ? ': finding raised and logged.' : ' reviewed, no issue. Logged.'), act === 'ra-finding' ? 'warn' : 'ok');
+          U.toast(acc.id + (act === 'ra-finding' ? ': finding raised and recorded.' : ' reviewed, no issue. Recorded.'), act === 'ra-finding' ? 'warn' : 'ok');
         } catch (err) { U.toast(String(err && err.message || err), 'bad'); return; }
         PCAP.app.render();
         return;
@@ -246,7 +243,7 @@
       }
       var pre = document.getElementById('export-preview');
       if (pre) { pre.hidden = false; pre.textContent = pack.csv.split('\n').slice(0, 6).join('\n') + '\n...'; }
-      U.toast(ok ? 'Evidence pack exported: ' + pack.count + ' events.' : 'Download blocked by the browser. The preview below shows the first rows.', ok ? 'ok' : 'warn');
+      U.toast(ok ? 'Evidence pack downloaded: ' + pack.count + ' recorded steps.' : 'Download blocked by the browser. The preview below shows the first rows.', ok ? 'ok' : 'warn');
     };
   }
 
