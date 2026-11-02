@@ -438,9 +438,8 @@
   function variance(m) {
     var r = m.results && m.results['R-01'];
     var diff = E.round2(m.total - m.expected);
-    var cfg = E.DEFAULT_CONFIG;
     var fire = !!(r && r.status === 'fire');
-    var crit = fire && (m.expected <= 0 || Math.abs(diff) > cfg.tier3Abs || Math.abs(diff) / m.expected > cfg.tier3Pct);
+    var crit = fire && E.varianceTier(m.expected, diff) === 3;
     return { diff: diff, fire: fire, tone: !fire ? 'good' : crit ? 'crit' : 'warn' };
   }
   function ratioText(x) { return x >= 10 ? String(Math.round(x)) : (Math.round(x * 10) / 10).toFixed(1).replace(/\.0$/, ''); }

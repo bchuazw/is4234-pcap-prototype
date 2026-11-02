@@ -117,6 +117,29 @@ test('R-01 Variance: an extra zero is Tier 3, a 2% slip is Tier 2, a USD 300 sli
   assert.equal(tiny.tier, 1);
 });
 
+test('R-01 Variance: above 5% on an expected payment above USD 1m is Tier 3, smaller payments keep the 10% line (report Table 6)', () => {
+  const c = ctx();
+  /* LN-1001 expects USD 1,284,375 today, so the 5% line applies. */
+  const six = E.evaluate(cleanInterest({ interest: 1284375 * 1.06 }), c);
+  assert.deepEqual(firedRules(six), ['R-01']);
+  assert.equal(six.results['R-01'].tier, 3, '6% off a USD 1.28M payment is a hard stop');
+  assert.equal(six.tier, 3);
+  const four = E.evaluate(cleanInterest({ interest: 1284375 * 1.049 }), c);
+  assert.equal(four.results['R-01'].tier, 2, '4.9% off is beyond tolerance but under 5%');
+  assert.equal(four.tier, 2);
+  /* LN-1008 expects USD 845,000 (yesterday), below USD 1m: 6% is Tier 2, only above 10% is Tier 3. */
+  const y = E.addDays(BD, -1);
+  const small = E.evaluate(cleanInterest({ loanId: 'LN-1008', valueDate: y, interest: 845000 * 1.06 }), c);
+  assert.equal(small.results['R-01'].tier, 2);
+  assert.equal(E.evaluate(cleanInterest({ loanId: 'LN-1008', valueDate: y, interest: 845000 * 1.11 }), c).results['R-01'].tier, 3);
+  /* The line sits strictly above USD 1m: exactly USD 1m keeps the 10% line. */
+  assert.equal(E.varianceTier(1000000, 60000), 2);
+  assert.equal(E.varianceTier(1000001, 60000), 3);
+  assert.equal(E.varianceTier(20000000, 1200000), 3, '6% of USD 20M is a hard stop although it is under USD 5M');
+  assert.equal(E.varianceTier(20000000, 20000), 1, 'inside the 0.1% tolerance');
+  assert.match(E.RULES['R-01'].action, /above 5% on an expected payment above USD 1 million/);
+});
+
 test('R-01 Variance: paying on a date with nothing due, or paying a line twice, is Tier 3', () => {
   const c = ctx();
   const wrongDay = E.evaluate(cleanInterest({ valueDate: E.addDays(BD, 1) }), c);

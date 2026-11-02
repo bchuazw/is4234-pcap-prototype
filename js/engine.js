@@ -51,6 +51,8 @@
     tolerancePct: 0.001,      // R-01: or 0.1% of the expected amount, whichever is larger
     tier3Pct: 0.10,           // R-01: above 10% variance is Tier 3
     tier3Abs: 5000000,        // R-01: or above USD 5 million variance is Tier 3
+    tier3LargeExpected: 1000000, // R-01: for an expected payment above USD 1 million (report Table 6)...
+    tier3LargePct: 0.05,      // R-01: ...a variance above 5% is Tier 3
     overrideFloorTier: 2,     // any valid override payment is at least Tier 2
     rekeyTolerance: 0.5,      // R-07: re-key must match to the nearest dollar
     fastLookSec: 8,           // R-08: a look at the consequence screen under 8 s is a "fast look"
@@ -79,7 +81,7 @@
   var RULES = {
     'R-01': { id: 'R-01', name: 'Variance', module: 'M2', obligations: ['O2'], screen: 'Payment desk',
       logic: 'Compares the amount PCAP computes will leave the bank with the amount the loan schedule expects on the value date, less anything already paid. Tolerance is the larger of USD 500 or 0.1% of the expected amount.',
-      action: 'Beyond tolerance: Tier 2. Beyond 10% or USD 5 million, or nothing due: Tier 3 hard stop.' },
+      action: 'Beyond tolerance: Tier 2. Tier 3 hard stop when nothing is due, the variance is above 10% or USD 5 million, or it is above 5% on an expected payment above USD 1 million.' },
     'R-02': { id: 'R-02', name: 'Unscheduled principal', module: 'M2', obligations: ['O2'], screen: 'Payment desk',
       logic: 'Flags principal that would leave the bank when the schedule has no principal due on that date, or more principal than is due.',
       action: 'Tier 3 hard stop.' },
@@ -441,6 +443,21 @@
   /* Rules R-01 to R-07 (payment level)                                  */
   /* ------------------------------------------------------------------ */
 
+  /* R-01 thresholds in one place (the rule and the payment desk both use them). Returns 1 inside the tolerance,
+     2 beyond it, and 3 when nothing is due, the variance is above 10% or USD 5 million, or above 5% on an
+     expected payment above USD 1 million. */
+  function varianceTier(expected, diff, cfgIn) {
+    var cfg = config(cfgIn);
+    var abs = Math.abs(round2(diff));
+    if (abs < 0.005) return 1;
+    if (abs <= round2(Math.max(cfg.toleranceAbs, expected * cfg.tolerancePct))) return 1;
+    if (expected <= 0) return 3;
+    var pct = abs / expected;
+    if (pct > cfg.tier3Pct || abs > cfg.tier3Abs) return 3;
+    if (expected > cfg.tier3LargeExpected && pct > cfg.tier3LargePct) return 3;
+    return 2;
+  }
+
   function ruleR01Variance(c, exp, cfg) {
     var expected = exp.remainingTotal;
     var actual = c.externalTotal;
@@ -456,7 +473,7 @@
       return assign(base, { status: 'pass', message: 'Outgoing ' + fmtUSD(actual) + ' is ' + fmtUSD(abs) + ' off the ' + fmtUSD(expected) + ' the schedule expects, inside the ' + fmtUSD(tol) + ' tolerance.' });
     }
     var pct = expected > 0 ? abs / expected : Infinity;
-    var tier = (expected <= 0 || pct > cfg.tier3Pct || abs > cfg.tier3Abs) ? 3 : 2;
+    var tier = varianceTier(expected, diff, cfg);
     var msg;
     if (expected <= 0) {
       msg = exp.alreadyPaid
@@ -957,7 +974,7 @@
   var ERROR_CLASSES = {
     T3: { id: 'T3', label: 'Tier 3 errors', note: 'Should be held at Tier 3 every time (target 100%).' },
     GATE: { id: 'GATE', label: 'M3 gate errors', note: 'Should be blocked at the Authority and Independence Gate.' },
-    T2: { id: 'T2', label: 'Tier 2 errors', note: 'Flagged at Tier 2, then stopped if the blind re-key disagrees.' },
+    T2: { id: 'T2', label: 'Tier 2 errors', note: 'Flagged at Tier 2 (Tier 3 when above 5% of an expected payment above USD 1 million), then stopped if the blind re-key disagrees.' },
     BELOW: { id: 'BELOW', label: 'Below tolerance', note: 'Inside the R-01 tolerance, so not expected to be stopped before release. M5 should find them the same day.' }
   };
 
@@ -1548,6 +1565,7 @@
     applyRelease: applyRelease,
     consequenceStatement: consequenceStatement,
     // pre-release check and R-07
+    varianceTier: varianceTier,
     resolveOverride: resolveOverride,
     evaluate: evaluate,
     rekeyResult: rekeyResult,
