@@ -87,7 +87,11 @@
       dlg.addEventListener('keydown', function (e) {
         var t = e.target;
         if (e.key === 'Escape') { e.preventDefault(); dismiss(); }
-        else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !(t && t.tagName === 'BUTTON')) { e.preventDefault(); accept(); }
+        else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          /* Enter confirms, unless the focus is on Cancel, where Enter cancels. */
+          e.preventDefault();
+          if (t && t.getAttribute && t.getAttribute('data-pdlg') === 'cancel') dismiss(); else accept();
+        }
         else if (e.key === 'Tab') {
           var f = Array.prototype.slice.call(dlg.querySelectorAll('textarea, button'));
           var i = f.indexOf(doc.activeElement);

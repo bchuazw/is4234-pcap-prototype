@@ -46,7 +46,7 @@ test('tabs, tiers and roles use plain words, and the old How to demo link opens 
   assert.equal(P.PAGES.about.label, 'About this prototype');
   assert.deepEqual([1, 2, 3].map((t) => P.tier(t).label), ['Routine', 'Needs a closer look', 'Stopped']);
   assert.deepEqual([1, 2, 3].map((t) => P.tier(t).code), ['Tier 1', 'Tier 2', 'Tier 3']);
-  assert.deepEqual(P.CARDS.map((c) => c.title), ['I key payments', 'I approve payments', 'I review risks', 'I oversee and audit']);
+  assert.deepEqual(P.CARDS.map((c) => c.title), ['I key payments', 'I approve payments', 'I review risks', 'I own the risk', 'I oversee and audit']);
   P.CARDS.forEach((c) => { assert.deepEqual(P.copyProblems(c.line), []); assert.equal(P.sentences(c.line) <= 2, true); });
   ROLES.forEach((r) => assert.ok(P.roleName(r) && !P.CODE_RE.test(P.roleName(r))));
 });

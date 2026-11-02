@@ -189,7 +189,8 @@
       kv('Workaround code', i.overrideCode || 'None') + kv('FRONT, FUND, PRINCIPAL', [i.fields.FRONT, i.fields.FUND, i.fields.PRINCIPAL].map(function (v) { return v === E.WASH ? 'stays in the bank' : 'to lenders'; }).join(', ')) +
       kv('Maker', store.userName(i.makerId)) + kv('Checker', store.userName(i.checkerId)) + kv('Approver', store.userName(i.approverId)) +
       kv('PCAP found when sent', p.atSubmit ? P.tier(p.atSubmit.tier).label + ' (Tier ' + p.atSubmit.tier + ')' : '') +
-      (p.releasedAt ? kv('Released', U.fmtUSD(p.releasedExternal) + ' at ' + U.fmtShortDateTime(p.releasedAt) + (p.viaOpRisk ? ' by Operational Risk' : '')) : '') +
+      (p.referral ? kv('Referred to Operational Risk by', store.userName(p.referral.by) + ', ' + U.fmtShortDateTime(p.referral.at)) : '') +
+      (p.releasedAt ? kv('Released', U.fmtUSD(p.releasedExternal) + ' at ' + U.fmtShortDateTime(p.releasedAt) + (p.viaAcceptance ? ' by ' + store.userName(p.releasedBy) + ' (Head of Loan Ops) under a risk sign-off' : '')) : '') +
       '</div>' +
       (p.atSubmit ? '<div class="statement mini">' + p.atSubmit.statement.map(function (s) { return '<p>' + U.emphasise(s) + '</p>'; }).join('') + '</div>' : '') +
       '<h3>Evidence trail: everything PCAP recorded for this payment</h3>' + paymentTimeline(id);

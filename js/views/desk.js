@@ -29,20 +29,22 @@
   var renderedAt = 0;    /* when the detail was last drawn: a keyboard release within 600 ms is ignored (no double-Enter releases) */
   var lastFocusKey = ''; /* the payment state the default focus was last set for, so focus is never stolen while you work */
   var ENTER_GUARD_MS = 600;
-  var NOTE_MIN = 10;     /* a checker who sends on a Tier 3 payment says why, in at least this many characters */
 
   var ROLES = [
     { id: 'maker', label: 'Maker', noun: 'the maker' },
     { id: 'checker', label: 'Checker', noun: 'the checker' },
     { id: 'approver', label: 'Approver', noun: 'the approver' },
-    { id: 'oprisk', label: 'Op Risk', noun: 'Operational Risk' }
+    { id: 'oprisk', label: 'Op Risk', noun: 'Operational Risk' },
+    { id: 'owner', label: 'Head of Loan Ops', noun: 'the Head of Loan Ops' }
   ];
-  var WAITS = { SUBMITTED: 'checker', CHECKED: 'approver', HELD: 'oprisk', RETURNED: 'maker' };
+  var WAITS = { SUBMITTED: 'checker', CHECKED: 'approver', HELD: 'oprisk', RETURNED: 'maker', ACCEPTED: 'owner' };
+  var STAGE = { maker: 'the maker', checker: 'the checker', approver: 'the approver' };
   var FINAL = { RELEASED: true, CANCELLED: true, REJECTED: true };
   var STATUS = {
     SUBMITTED: { label: 'Waiting for checker', short: 'At checker', cls: 'wait' },
     CHECKED: { label: 'Waiting for approver', short: 'At approver', cls: 'wait' },
-    HELD: { label: 'Held for Operational Risk', short: 'At Op Risk', cls: 'hold' },
+    HELD: { label: 'Stopped, with Operational Risk', short: 'At Op Risk', cls: 'hold' },
+    ACCEPTED: { label: 'Signed off, waiting for the Head of Loan Ops', short: 'Signed off', cls: 'hold' },
     RETURNED: { label: 'Returned to maker', short: 'Returned', cls: 'ret' },
     RELEASED: { label: 'Released', short: 'Released', cls: 'done' },
     CANCELLED: { label: 'Cancelled', short: 'Cancelled', cls: 'off' },
@@ -53,7 +55,7 @@
   var TIER_TEXT = {
     1: { title: 'Routine.', text: 'Nothing unusual. The approver reads what the payment will do, then releases it.', icon: 'check' },
     2: { title: 'Needs a closer look.', text: 'An in-house approver types the amount from their own source, then confirms what the payment will do.', icon: 'warn' },
-    3: { title: 'Stopped.', text: 'Only Operational Risk can release this payment.', icon: 'stop' }
+    3: { title: 'Stopped.', text: 'It cannot be sent on. The maker fixes it, or it goes to Operational Risk with a reason.', icon: 'stop' }
   };
   function tierName(t, short) { var x = PCAP.plain.tier(t); return short ? x.short : x.label; }
   /* A report code as a small tag. Hidden unless "Show report codes" is on. */
@@ -120,7 +122,8 @@
     if (!n.length) return null;
     return n.every(function (x) { return x === n[0]; }) ? [n[0]] : n;
   }
-  function readOnlyRole(role) { return role === 'owner' || role === 'audit' || role === 'board' || role === 'vendor'; }
+  /* The Head of Loan Ops acts on the desk only for release decisions. Internal Audit, the Board and the provider only read. */
+  function readOnlyRole(role) { return role === 'audit' || role === 'board' || role === 'vendor'; }
 
   /* ------------------------------------------------------------ demo scenarios and the maker draft */
 
@@ -505,7 +508,10 @@
       ? '<p class="db-gate">' + U.icon('lock') + '<span>' + esc(name(m.approverId)) + ' is not allowed to approve this payment, so it has to go to another approver. ' + code('M3') + '</span></p>' : '';
     var title = released ? 'Released.' : t.title;
     var text = released ? 'PCAP had marked it ' + tierName(m.tier).toLowerCase() + '.' : t.text;
-    if (released && p.viaOpRisk && p.opRisk && p.opRisk.acceptance) text = 'Released by Operational Risk under risk sign-off ' + p.opRisk.acceptance.id + ', owned by ' + name(p.opRisk.acceptance.ownerId) + '.';
+    var acc = p && p.opRisk && p.opRisk.acceptance;
+    if (released && p.viaAcceptance && acc) text = 'Released by ' + name(p.releasedBy) + ' (Head of Loan Ops) under risk sign-off ' + acc.id + ', after Operational Risk assessed it.';
+    else if (p && p.status === 'HELD') text = 'Operational Risk assesses it. They can return it as a real error or sign off the risk, but they cannot release it.';
+    else if (p && p.status === 'ACCEPTED' && acc) text = 'Operational Risk signed off the risk (' + acc.id + '). Only ' + name(acc.ownerId) + ', Head of Loan Ops, can release it.';
     return '<div class="dbanner t' + m.tier + '" role="status">' + U.icon(released ? 'check' : t.icon) + '<div class="db-body"><p><span class="db-tag">Tier ' + m.tier + '</span> <strong>' + U.term('tier' + m.tier, title, 'on-banner') + '</strong> ' + esc(text) + '</p>' + gate + '</div></div>';
   }
 
@@ -563,16 +569,22 @@
     var a = p.approval && p.approval.version === p.version ? p.approval : null;
     var evs = roundEvents(p);
     var opr = null;
-    evs.forEach(function (e) { if (e.type === 'OPRISK_REJECTED' || e.type === 'OPRISK_RELEASED') opr = e; });
+    evs.forEach(function (e) { if (e.type === 'OPRISK_REJECTED' || e.type === 'RISK_ACCEPTED') opr = e; });
     var rl = rekeyLabels(a);
     var rekeys = rl ? 'Typed ' + rl.join(' then ') : '';
-    var acc = p.opRisk && p.opRisk.acceptance;
+    var o = opr ? p.opRisk : null;
+    var acc = o && o.acceptance;
+    var ref = p.referral;
+    var skipped = ref && ref.stage === 'maker' ? 'Not reached: PCAP stopped it first' : '';
+    var accText = !acc ? '' : acc.status === 'released' ? 'Owns the risk. Released it ' + when(acc.release.at) + ', this payment only' :
+      acc.status === 'declined' ? 'Owns the risk. Decided not to release it' : 'Owns the risk and decides on release, this payment only, until the end of ' + U.fmtDate(acc.expires);
     var items = personRow('Maker', p.makerId, '', p.instr.makerNote) +
-      personRow('Checker', p.checkerId, '', opts.hideCheckerNote ? '' : p.checkerNote) +
-      personRow('Approver', p.approverId, opts.hideRekeys ? '' : rekeys, a && a.note) +
-      (opr && p.opRisk ? personRow('Op Risk', p.opRisk.by, p.opRisk.decision === 'release' ? 'Released under risk sign-off ' + (acc ? acc.id : '') + ' (' + p.opRisk.category + ')' : 'Rejected', p.opRisk.reason) : '') +
-      (acc ? personRow('Risk owner', acc.ownerId, 'Accepted the risk for this payment only, until ' + U.fmtDate(acc.expires), PCAP.plain && !U.codesOn() ? PCAP.plain.plainText(acc.followUp) : acc.followUp) : '') +
-      (p.heldAt && p.status === 'HELD' ? '<li><span class="ppl-role">Held</span><span class="ppl-name">' + esc(U.fmtDateTime(p.heldAt)) + '</span></li>' : '');
+      personRow('Checker', p.checkerId, skipped || (ref && ref.stage === 'checker' ? '' : ''), opts.hideCheckerNote ? '' : p.checkerNote) +
+      personRow('Approver', p.approverId, skipped || (opts.hideRekeys ? '' : rekeys), a && a.decision !== 'escalate' ? a.note : '') +
+      (ref ? personRow('Referred by', ref.by, STAGE[ref.stage] + ', ' + when(ref.at), ref.reason) : '') +
+      (o ? personRow('Op Risk', o.by, o.decision === 'accept' ? 'Signed off the risk: ' + (acc ? acc.id : '') + ', ' + o.category.toLowerCase() + '. Cannot release it' : 'Returned it as a real error', o.reason) : '') +
+      (acc ? personRow('Risk owner', acc.ownerId, accText, PCAP.plain && !U.codesOn() ? PCAP.plain.plainText(acc.followUp) : acc.followUp) : '') +
+      (p.heldAt && p.status === 'HELD' ? '<li><span class="ppl-role">Stopped</span><span class="ppl-name">' + esc(U.fmtDateTime(p.heldAt)) + '</span></li>' : '');
     if (opts.fold) {
       var notes = [p.instr.makerNote, opts.hideCheckerNote ? '' : p.checkerNote, a && a.note].filter(Boolean).length;
       var meta = [name(p.makerId), name(p.checkerId), name(p.approverId)].join(', ') + (notes ? '. ' + notes + ' note' + (notes === 1 ? '' : 's') : '');
@@ -587,24 +599,40 @@
     var evs = roundEvents(p);
     function last(type) { for (var i = evs.length - 1; i >= 0; i--) if (evs[i].type === type) return evs[i]; return null; }
     var sub = evs[0] || null, chk = last('CHECKED'), rel = last('RELEASED'), held = last('HELD');
-    var oRel = last('OPRISK_RELEASED'), oRej = last('OPRISK_REJECTED'), ret = last('RETURNED'), canc = last('CANCELLED');
+    var oAcc = last('RISK_ACCEPTED'), oRej = last('OPRISK_REJECTED'), owRel = last('OWNER_RELEASED'), owDec = last('OWNER_DECLINED');
+    var ret = last('RETURNED'), canc = last('CANCELLED');
     var t3 = m.tier === 3 || !!held;
+    var stage = held && held.data ? held.data.stage : null;
+    var acc = p.opRisk && p.opRisk.acceptance;
     var steps = [
       { label: 'Instruction', state: 'done', meta: name(p.makerId) + (sub ? ', ' + (sub.type === 'RESUBMITTED' ? 'resubmitted ' : '') + when(sub.ts) : '') },
       { label: 'Checker review', state: 'upcoming', meta: name(p.checkerId) },
       { label: 'Approver confirmation', state: 'upcoming', meta: name(p.approverId) },
       { label: 'Op Risk review', state: t3 ? 'upcoming' : 'skipped', meta: t3 ? 'Needed, PCAP stopped it' : 'Only if stopped' },
-      { label: 'Release', state: 'upcoming', meta: 'Not released yet' }
+      { label: 'Release', state: 'upcoming', meta: t3 ? 'Only by the Head of Loan Ops, after a sign-off' : 'Not released yet' }
     ];
     if (chk) { steps[1].state = 'done'; steps[1].meta = name(chk.actorId) + ', ' + when(chk.ts); }
     if (rel) { steps[2].state = 'done'; steps[2].meta = name(rel.actorId) + ', approved ' + when(rel.ts); }
-    if (held) { steps[2].state = 'done'; steps[2].meta = name(held.actorId) + ', sent on ' + when(held.ts); }
-    if (oRel) { steps[3].state = 'done'; steps[3].meta = name(oRel.actorId) + ', released ' + when(oRel.ts); }
-    if (oRej) { steps[3].state = 'returned'; steps[3].meta = name(oRej.actorId) + ', rejected ' + when(oRej.ts); }
+    if (held) {
+      if (stage === 'maker') {
+        steps[0].meta = name(held.actorId) + ', stopped and referred ' + when(held.ts);
+        steps[1] = { label: 'Checker review', state: 'skipped', meta: 'Not reached: stopped' };
+        steps[2] = { label: 'Approver confirmation', state: 'skipped', meta: 'Not reached: stopped' };
+      } else if (stage === 'checker') {
+        steps[1].state = 'done'; steps[1].meta = name(held.actorId) + ', referred ' + when(held.ts);
+        steps[2] = { label: 'Approver confirmation', state: 'skipped', meta: 'Not reached: stopped' };
+      } else {
+        steps[2].state = 'done'; steps[2].meta = name(held.actorId) + ', referred ' + when(held.ts);
+      }
+    }
+    if (oAcc) { steps[3].state = 'done'; steps[3].meta = name(oAcc.actorId) + ', signed off ' + when(oAcc.ts); }
+    if (oRej) { steps[3].state = 'returned'; steps[3].meta = name(oRej.actorId) + ', a real error ' + when(oRej.ts); }
+    if (owDec) steps[4] = { label: 'Release decision', state: 'returned', meta: name(owDec.actorId) + ', not released ' + when(owDec.ts) };
     if (p.status === 'SUBMITTED') { steps[1].state = 'current'; steps[1].meta = 'Waiting for ' + name(p.checkerId); }
     if (p.status === 'CHECKED') { steps[2].state = 'current'; steps[2].meta = 'Waiting for ' + name(p.approverId); }
     if (p.status === 'HELD') { steps[3].state = 'current'; steps[3].meta = 'Waiting for Operational Risk'; }
-    if (p.status === 'RELEASED') steps[4] = { label: 'Released', state: 'released', meta: when((oRel || rel || {}).ts || p.releasedAt) };
+    if (p.status === 'ACCEPTED') steps[4] = { label: 'Release decision', state: 'current', meta: 'Waiting for ' + name(acc ? acc.ownerId : store.roleUserId('owner')) + ', Head of Loan Ops' };
+    if (p.status === 'RELEASED') steps[4] = { label: 'Released', state: 'released', meta: (owRel ? name(owRel.actorId) + ', ' : '') + when((owRel || rel || {}).ts || p.releasedAt) };
     if ((p.status === 'RETURNED' || p.status === 'CANCELLED') && ret) {
       var idx = { checker: 1, approver: 2, gate: 2 }[p.returnStage];
       if (idx) {
@@ -624,7 +652,7 @@
   /* The lifecycle drawn as a clearance track: it fills as the payment moves from maker to release. */
   function stepperHtml(steps, p) {
     var done = steps.filter(function (s) { return s.state === 'done' || s.state === 'released'; }).length;
-    var state = p.status === 'RELEASED' ? ['is-cleared', 'Released'] : p.status === 'HELD' ? ['is-held', 'Stopped, with Op Risk'] :
+    var state = p.status === 'RELEASED' ? ['is-cleared', 'Released'] : p.status === 'HELD' ? ['is-held', 'Stopped, with Op Risk'] : p.status === 'ACCEPTED' ? ['is-held', 'Signed off, release decision next'] :
       p.status === 'RETURNED' ? ['is-ret', 'Back with the maker'] : (p.status === 'CANCELLED' || p.status === 'REJECTED') ? ['', 'Cancelled'] : ['', 'In progress'];
     return '<div class="track-head" aria-hidden="true"><span>Where it is</span><span class="track-state ' + state[0] + '">' + esc(state[1]) + ' · ' + done + ' of ' + steps.length + '</span></div>' +
       '<ol class="stepper ' + state[0] + '" aria-label="Payment lifecycle">' + steps.map(function (s, i) {
@@ -647,16 +675,18 @@
     if (w) {
       if (w === role) return '';
       var r = roleInfo(w);
-      var who = w === 'checker' ? name(p.checkerId) : w === 'approver' ? name(p.approverId) : w === 'maker' ? name(p.makerId) : name(store.roleUserId('oprisk'));
+      var acc0 = p.opRisk && p.opRisk.acceptance;
+      var who = w === 'checker' ? name(p.checkerId) : w === 'approver' ? name(p.approverId) : w === 'maker' ? name(p.makerId) : w === 'owner' ? name(acc0 ? acc0.ownerId : store.roleUserId('owner')) : name(store.roleUserId('oprisk'));
       var text = w === 'maker'
         ? 'Back with the maker (' + who + '). Switch to Maker to fix and resubmit it.'
         : 'Waiting for ' + r.noun + ' (' + who + '). Switch to ' + r.label + ' to continue.';
       return '<div class="next-step">' + ico('clock') + '<p>' + esc(text) + '</p><button type="button" class="btn primary small" data-action="role" data-role="' + w + '">Switch to ' + esc(r.label) + ' ' + U.icon('arrow') + '</button></div>';
     }
     if (p.status === 'RELEASED') {
-      var by = p.viaOpRisk && p.opRisk ? 'Operational Risk (' + name(p.opRisk.by) + ')' : name(p.releasedBy);
+      var acc1 = p.opRisk && p.opRisk.acceptance;
+      var by = p.viaAcceptance && acc1 ? name(p.releasedBy) + ' (Head of Loan Ops) under risk sign-off ' + acc1.id : name(p.releasedBy);
       var a = p.approval;
-      var dwell = !p.viaOpRisk && a && a.decision === 'approve' && a.dwellSec != null ? ' ' + name(p.approverId) + ' spent ' + U.fmtSec(a.dwellSec) + ' on the consequence screen.' : '';
+      var dwell = !p.viaAcceptance && a && a.decision === 'approve' && a.dwellSec != null ? ' ' + name(p.approverId) + ' spent ' + U.fmtSec(a.dwellSec) + ' on the consequence screen.' : '';
       return '<div class="next-step is-done">' + U.icon('check') + '<p>Released by ' + esc(by) + ' on ' + esc(U.fmtDateTime(p.releasedAt)) + '. ' + b(shortAmt(p.releasedExternal)) + ' left the bank.' + esc(dwell) + '</p></div>';
     }
     if (p.status === 'CANCELLED' || p.status === 'REJECTED') return '<div class="next-step is-off">' + U.icon('dash') + '<p>Cancelled by the maker. Nothing left the bank.</p></div>';
@@ -685,6 +715,23 @@
     return '<div class="field"><label class="flabel" for="' + id + '">' + esc(label) + '</label><textarea id="' + id + '" rows="' + (rows || 3) + '" data-note="' + esc(k) + '" placeholder="' + esc(placeholder) + '">' + esc(noteDrafts[k] || '') + '</textarea></div>';
   }
 
+  /* A written reason with a live counter, for referrals and decisions that are recorded. */
+  function reasonField(key, id, label, placeholder, rows) {
+    var k = key + ':' + id;
+    var min = E.DEFAULT_CONFIG.reasonMinChars;
+    var have = (noteDrafts[k] || '').trim().length;
+    return '<div class="field"><label class="flabel" for="' + id + '">' + esc(label) + '</label><textarea id="' + id + '" rows="' + (rows || 3) + '" data-note="' + esc(k) + '" data-min="' + min + '" aria-describedby="' + id + '-count" placeholder="' + esc(placeholder) + '">' + esc(noteDrafts[k] || '') + '</textarea>' +
+      '<p class="fcount' + (have >= min ? ' is-ok' : '') + '" id="' + id + '-count">' + esc(countText(have, min)) + '</p></div>';
+  }
+
+  /* A stopped payment's other way forward (report 5.5): refer it to Operational Risk with a reason. */
+  function referBlock(key, action, id, label) {
+    return '<div class="refer"><p class="refer-or"><span>or</span></p>' +
+      reasonField(key, 'refer-reason', label, 'e.g. The agent notice has the new rate. The loan schedule still has the old one.', 2) + fieldError('refer-err') +
+      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="' + action + '"' + (id ? ' data-id="' + esc(id) + '"' : '') + '>Refer to Operational Risk</button></div>' +
+      '<p class="hint">Operational Risk can return it as a real error or sign off the risk. They cannot release it. Only the Head of Loan Ops can, after a sign-off.</p></div>';
+  }
+
   /* A message under a field that says what is wrong and how to fix it. Filled in by the action that checks it. */
   function fieldError(id) { return '<p class="ferr" id="' + id + '" role="alert" hidden></p>'; }
   function showError(id, text, focusSel) {
@@ -700,12 +747,13 @@
   }
 
   function returnPanel(p, stage, m) {
-    var fromChecks = m && m.tier === 3 ? failedText(m) : '';
-    var def = fromChecks || (stage === 'approver' ? 'Amounts do not match my source.' : 'Please correct the instruction.');
+    var owner = stage === 'owner';
+    var fromChecks = m && m.tier === 3 && !owner ? failedText(m) : '';
+    var def = owner ? '' : fromChecks || (stage === 'approver' ? 'Amounts do not match my source.' : 'Please correct the instruction.');
     var k = p.id + ':return-reason';
     if (noteDrafts[k] == null) noteDrafts[k] = def;
-    return '<section class="card action" aria-label="Return to maker"><h3>Return ' + esc(p.id) + ' to the maker</h3>' +
-      '<p class="hint">The maker sees your reason and can fix and resubmit the payment.' + (fromChecks ? ' PCAP has filled in what failed. Edit it if you need to.' : '') + '</p>' +
+    return '<section class="card action" aria-label="Return to maker"><h3>' + (owner ? 'Do not release ' + esc(p.id) : 'Return ' + esc(p.id) + ' to the maker') + '</h3>' +
+      '<p class="hint">' + (owner ? 'It goes back to the maker with your reason, and the risk sign-off ends without a release.' : 'The maker sees your reason and can fix and resubmit the payment.' + (fromChecks ? ' PCAP has filled in what failed. Edit it if you need to.' : '')) + '</p>' +
       noteField(p.id, 'return-reason', 'Reason', '') + fieldError('return-err') +
       '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="return" data-id="' + p.id + '" data-stage="' + stage + '">Return to maker</button>' +
       '<button type="button" class="btn ghost" data-action="return-cancel">Cancel</button></div></section>';
@@ -715,13 +763,11 @@
     if (ui().deskReturn === p.id) return returnPanel(p, 'checker', m);
     var c = checkLines(m);
     if (m.tier === 3) {
-      /* The 2020 pattern: the outsourced checker passed on what the consequence card now shows as a hard stop. Returning is the easy path. */
+      /* In 2020 the outsourced checker passed the payment on. A stopped payment cannot go to the approver: return it or refer it. */
       return '<section class="card action is-t3" aria-label="Your check"><h3>Your check</h3>' +
-        '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>PCAP stopped this payment: ' + c.fail + ' check' + (c.fail === 1 ? '' : 's') + ' failed.</strong> Return it so the maker can fix it. Only send it on if you are sure, and say why.</p></div>' +
+        '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>PCAP stopped this payment: ' + c.fail + ' check' + (c.fail === 1 ? '' : 's') + ' failed.</strong> A stopped payment cannot go to the approver. Return it so the maker can fix it.</p></div>' +
         '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="return-open" data-id="' + p.id + '">Return to maker</button></div>' +
-        '<div class="send-on">' + noteField(p.id, 'checker-note', 'Why send it on? (a note to the approver, needed for a stopped payment)', 'e.g. Principal set to wash. Interest only to lenders.') + fieldError('check-err') +
-        '<p class="hint with-icon">' + U.icon('eye') + '<span>The approver sees this note only after typing their own figure. Sending on a stopped payment is counted for the provider as a whole in the monthly review, never by name.</span></p>' +
-        '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="check" data-id="' + p.id + '">Send to approver anyway</button></div></div></section>';
+        referBlock(p.id, 'refer', p.id, 'Think PCAP is wrong? Say why and refer it to Operational Risk') + '</section>';
     }
     return '<section class="card action" aria-label="Your check"><h3>Your check</h3>' +
       '<p class="hint">' + (c.fail ? 'PCAP flagged ' + c.fail + ' check' + (c.fail === 1 ? '' : 's') + ' (left). Compare the instruction with its source before you send it on.' : 'PCAP found nothing unusual. Compare the instruction with its source, then send it on.') + '</p>' +
@@ -750,9 +796,9 @@
     var to = shortAmt(m.total) + ' to ' + m.lenders + ' lender' + (m.lenders === 1 ? '' : 's');
     var body;
     if (m.tier === 3) {
-      body = '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>You cannot release this payment.</strong> Send it to Operational Risk with a note, or return it to the maker.</p></div>' +
-        noteField(p.id, 'approver-note', 'Note to Operational Risk (optional)', 'e.g. Notice says USD 7.82M interest only. This would send principal out.') +
-        '<div class="act-buttons"><button type="button" class="btn danger" data-primary data-action="escalate" data-id="' + p.id + '">Send to Operational Risk</button>' + ret + '</div>';
+      body = '<div class="inline-alert bad">' + U.icon('stop') + '<p><strong>You cannot release this payment.</strong> A stopped payment goes back to the maker, or to Operational Risk with a reason.</p></div>' +
+        '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="return-open" data-id="' + p.id + '">Return to maker</button></div>' +
+        referBlock(p.id, 'refer', p.id, 'Or say why and refer it to Operational Risk');
     } else if (m.tier === 2) {
       body = '<label class="confirm"><input type="checkbox" id="confirm-box"><span><strong>I confirm</strong> what this payment will do. ' + heroSentence(m) + (m.kept > 0 ? ' ' + keptSentence(m) : '') + '</span></label>' + fieldError('confirm-err') +
         '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="approve" data-id="' + p.id + '">Release ' + esc(to) + '</button>' + ret + '</div>';
@@ -769,33 +815,56 @@
   function opRiskPanel(p, m) {
     var mins = Math.max(0, Math.round((Date.now() - new Date(p.heldAt)) / 60000));
     var failed = checkLines(m).failed;
-    var k = p.id + ':opr-reason';
-    var min = E.DEFAULT_CONFIG.reasonMinChars;
-    var have = (noteDrafts[k] || '').trim().length;
-    var openRelease = ui().oprRelease === p.id;
-    return '<section class="card action opr" aria-label="Your decision"><h3>Your decision</h3>' +
-      '<p class="hint">' + esc(name(p.approverId)) + ' (approver) sent it here ' + (mins < 1 ? 'less than a minute' : mins + ' min') + ' ago. Send it back, or release it with a written ' + U.term('acceptance', 'risk sign-off') + '.</p>' +
-      (failed.length ? '<div class="why"><p class="why-title">Why it was held</p><ul>' + failed.map(function (l) {
+    var ref = p.referral || {};
+    var openAccept = ui().oprAccept === p.id;
+    var owners = st().ctx.users.filter(function (u) { return u.inHouse && (u.roles || []).indexOf('owner') >= 0; });
+    return '<section class="card action opr" aria-label="Your assessment"><h3>Your assessment</h3>' +
+      '<p class="hint">' + esc(name(ref.by)) + ' (' + esc(STAGE[ref.stage] || 'the chain') + ') referred it ' + (mins < 1 ? 'less than a minute' : mins + ' min') + ' ago. You cannot release it. Return it if it is a real error, or sign off the risk if it is a false alarm or an approved exception.</p>' +
+      (ref.reason ? '<blockquote class="reason">' + esc(ref.reason) + '</blockquote>' : '') +
+      (failed.length ? '<div class="why"><p class="why-title">Why PCAP stopped it</p><ul>' + failed.map(function (l) {
         return '<li>' + U.icon('x') + '<span>' + esc(l.label) + '</span>' + U.term(l.k, l.k, 'chk-id code-tag') + '</li>';
       }).join('') + '</ul></div>' : '') +
-      '<div class="field"><label class="flabel" for="opr-reason">Your reason (needed for either decision)</label><textarea id="opr-reason" rows="3" data-note="' + esc(k) + '" data-min="' + min + '" aria-describedby="opr-count" placeholder="e.g. Principal would leave the bank on an interest-only date. Returned for FRONT and FUND.">' + esc(noteDrafts[k] || '') + '</textarea>' +
-      '<p class="fcount' + (have >= min ? ' is-ok' : '') + '" id="opr-count">' + esc(countText(have, min)) + '</p></div>' + fieldError('opr-err') +
-      '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="opr-reject" data-id="' + p.id + '">Reject and return to maker</button></div>' +
-      '<details class="release-path"' + (openRelease ? ' open' : '') + '><summary>Release it instead (needs a written risk sign-off)' + ico('chev', 'fold-chev') + '</summary>' +
-      '<fieldset class="release-type"><legend>Why release it?</legend>' +
-      '<p class="hint">Releasing it means the bank accepts the risk PCAP found above. Say why, and name the manager who owns that risk. Internal Audit reviews every sign-off. ' + code('L5 risk acceptance') + '</p>' +
+      reasonField(p.id, 'opr-reason', 'Your reason (needed for either decision)', 'e.g. Principal would leave the bank on an interest-only date. Returned for FRONT and FUND.') + fieldError('opr-err') +
+      '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="opr-reject" data-id="' + p.id + '">Return to maker: a real error</button></div>' +
+      '<details class="release-path accept-path"' + (openAccept ? ' open' : '') + '><summary>Sign off the risk instead' + ico('chev', 'fold-chev') + '</summary>' +
+      '<fieldset class="release-type"><legend>Why may it go ahead?</legend>' +
+      '<p class="hint">A risk sign-off says the bank accepts the risk PCAP found, for this payment only, and names the manager who owns it. You cannot release the money: the Head of Loan Ops decides, and PCAP checks the rules again when they do. Internal Audit reviews every sign-off. ' + code('L5 risk acceptance') + '</p>' +
       '<label class="radio"><input type="radio" name="opr-category" value="' + esc(E.ACCEPT_CATEGORIES[0]) + '"><span>False alarm: the payment is correct and the loan schedule is out of date</span></label>' +
       '<label class="radio"><input type="radio" name="opr-category" value="' + esc(E.ACCEPT_CATEGORIES[1]) + '"><span>Approved business exception</span></label>' +
       '<div class="field"><label class="flabel" for="opr-owner">Manager who owns the risk</label><select id="opr-owner">' +
-      st().ctx.users.filter(function (u) { return u.inHouse && (u.roles || []).indexOf('owner') >= 0; }).map(function (u) { return '<option value="' + esc(u.id) + '">' + esc(u.name + ' (' + u.title.split(',')[0] + ')') + '</option>'; }).join('') + '</select></div>' +
-      '<p class="hint">Scope: this payment only. Expires at the end of today, ' + esc(U.fmtDate(store.today())) + ', so it cannot be reused for another payment.</p></fieldset>' +
-      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="opr-release" data-id="' + p.id + '">Sign off and release</button></div></details>' +
-      '<p class="hint">Every decision is recorded with your reason and the time. Releases also go to the Board.</p></section>';
+      owners.map(function (u) { return '<option value="' + esc(u.id) + '">' + esc(u.name + ' (' + u.title.split(',')[0] + ')') + '</option>'; }).join('') + '</select></div>' +
+      '<p class="hint">Scope: this payment only. It ends at the end of today, ' + esc(U.fmtDate(store.today())) + ', so it cannot be reused. PCAP adds a follow-up for the owner, such as correcting the loan schedule line.</p></fieldset>' +
+      '<div class="act-buttons"><button type="button" class="btn danger-outline" data-action="opr-accept" data-id="' + p.id + '">Record the risk sign-off</button></div></details>' +
+      '<p class="hint">Every decision is recorded with your reason and the time.</p></section>';
+  }
+
+  /* The Head of Loan Ops: a fresh, first-line release decision after Operational Risk's sign-off (report 5.5). */
+  function ownerPanel(p, m) {
+    if (ui().deskReturn === p.id) return returnPanel(p, 'owner', m);
+    var acc = (p.opRisk && p.opRisk.acceptance) || {};
+    var me = store.roleUserId('owner');
+    var to = shortAmt(m.total) + ' to ' + m.lenders + ' lender' + (m.lenders === 1 ? '' : 's');
+    var chk = E.releaseCheck({ releaserId: me, acceptance: acc, ev: store.currentEval(p), users: st().ctx.users, businessDate: store.today(),
+      makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId, referredById: p.referral ? p.referral.by : null });
+    var gate = chk.ok
+      ? '<p class="act-who">' + U.icon('unlock') + '<span><strong>' + U.term('release', 'You can release this.') + '</strong> ' + esc(name(me)) + ': the risk owner named in the sign-off, within your release limit and not part of this payment. PCAP checks the rules again when you release. ' + code('R-05, R-06', 'chk-id') + '</span></p>'
+      : '<div class="inline-alert bad">' + U.icon('lock') + '<p><strong>You cannot release it.</strong> ' + U.say(chk.problems.join(' ')) + '</p></div>';
+    return '<section class="card action owner-rel" aria-label="Your release decision"><h3>Your release decision</h3>' +
+      '<p class="hint">Operational Risk (' + esc(name(acc.recordedById)) + ') signed off the risk and named you as the manager who owns it. Releasing it is your decision, not theirs.</p>' +
+      '<dl class="sum acc-sum">' +
+      '<div><dt>Sign-off</dt><dd>' + esc(acc.id) + ', ' + esc(String(acc.category || '').toLowerCase()) + '</dd></div>' +
+      '<div><dt>Why</dt><dd>' + esc(acc.reason) + '</dd></div>' +
+      '<div><dt>Covers</dt><dd>This payment only, until the end of ' + esc(U.fmtDate(acc.expires)) + '</dd></div>' +
+      '<div><dt>Then</dt><dd>' + U.say(acc.followUp) + '</dd></div></dl>' +
+      gate + fieldError('owner-err') +
+      '<div class="act-buttons"><button type="button" class="btn danger" data-primary data-action="owner-release" data-id="' + p.id + '"' + (chk.ok ? '' : ' disabled') + '>Release ' + esc(to) + '</button>' +
+      '<button type="button" class="btn" data-action="return-open" data-id="' + p.id + '">Do not release</button></div>' +
+      '<p class="hint">Internal Audit reviews every sign-off and every release.</p></section>';
   }
   function countText(have, min) { return have >= min ? have + ' characters. Enough to record.' : have + ' of at least ' + min + ' characters.'; }
 
   function makerReturnedPanel(p) {
-    var stage = { checker: 'the checker', approver: 'the approver', gate: 'the approver, who is not allowed to approve it', oprisk: 'Operational Risk' }[p.returnStage] || 'a reviewer';
+    var stage = { checker: 'the checker', approver: 'the approver', gate: 'the approver, who is not allowed to approve it', oprisk: 'Operational Risk', owner: 'the Head of Loan Ops' }[p.returnStage] || 'a reviewer';
     return '<section class="card action" aria-label="Returned to you"><h3>Returned to you</h3>' +
       '<p class="hint">' + esc(name(p.returnedBy)) + ' (' + esc(stage) + ') returned it on ' + esc(U.fmtDateTime(p.returnedAt)) + '.</p>' +
       (p.returnReason ? '<blockquote class="reason">' + U.say(p.returnReason) + '</blockquote>' : '') +
@@ -814,13 +883,14 @@
     if (role === 'approver' && p.status === 'CHECKED') {
       if (m.tier === 1) return bar(t + ' to ' + m.lenders + ' lenders', back + '<button type="button" class="btn primary" data-action="approve" data-id="' + p.id + '">Release</button>');
       if (m.tier === 2) return bar(t + '. Tick the confirmation first', go('Confirm and release'));
-      return bar(t + '. You cannot release it', go('Send to Op Risk', 'danger'));
+      return bar(t + '. You cannot release it', go('Return or refer', 'danger'));
     }
     if (role === 'checker' && p.status === 'SUBMITTED') {
-      if (m.tier === 3) return bar(t + ' by PCAP', go('Return or send on'));
+      if (m.tier === 3) return bar(t + ' by PCAP', go('Return or refer'));
       return bar(t + (checkLines(m).fail ? '. Flagged' : '. Nothing unusual'), back + '<button type="button" class="btn primary" data-action="check" data-id="' + p.id + '">Mark checked</button>');
     }
-    if (role === 'oprisk' && p.status === 'HELD') return bar(t + '. Waiting for your decision', go('Decide', 'danger'));
+    if (role === 'oprisk' && p.status === 'HELD') return bar(t + '. Waiting for your assessment', go('Assess', 'danger'));
+    if (role === 'owner' && p.status === 'ACCEPTED') return bar(t + '. Signed off by Op Risk', go('Decide', 'danger'));
     if (role === 'maker' && p.status === 'RETURNED') return bar('Returned to you', '<button type="button" class="btn primary" data-action="edit" data-id="' + p.id + '">Edit and resubmit</button>');
     return '';
   }
@@ -930,7 +1000,10 @@
         body = grid(decisionBanner(m), consequenceCard(m), checkerPanel(p, m), [checksCard(m), instructionCard(p.instr, { fold: true, open: true }), peopleCard(p, { fold: true })]) + actBar(p, m, role);
       } else if (role === 'oprisk' && p.status === 'HELD') {
         if (!oprPerf[p.id]) oprPerf[p.id] = performance.now();
-        body = grid(decisionBanner(m), consequenceCard(m, rekeyFigs), opRiskPanel(p, m), [peopleCard(p, { title: 'Who saw it', fold: true, open: true }), checksCard(m), instructionCard(p.instr, { fold: true })]) + actBar(p, m, role);
+        body = grid(decisionBanner(m, p), consequenceCard(m, rekeyFigs), opRiskPanel(p, m), [peopleCard(p, { title: 'Who saw it', fold: true, open: true }), checksCard(m), instructionCard(p.instr, { fold: true })]) + actBar(p, m, role);
+      } else if (role === 'owner' && p.status === 'ACCEPTED') {
+        if (!oprPerf['owner:' + p.id]) oprPerf['owner:' + p.id] = performance.now();
+        body = grid(decisionBanner(m, p), consequenceCard(m, rekeyFigs), ownerPanel(p, m), [peopleCard(p, { title: 'Who saw it', fold: true, open: true }), checksCard(m), instructionCard(p.instr, { fold: true })]) + actBar(p, m, role);
       } else if (role === 'maker' && p.status === 'RETURNED') {
         body = grid(decisionBanner(m), consequenceCard(m, rekeyFigs), makerReturnedPanel(p), [checksCard(m), instructionCard(p.instr, { fold: true }), peopleCard(p, { fold: true })]) + actBar(p, m, role);
       } else {
@@ -949,21 +1022,21 @@
     var hint = {
       checker: 'You are all caught up. Payments appear here when the maker submits them.',
       approver: 'You are all caught up. Payments appear here after the checker sends them on.',
-      oprisk: 'No stopped payments are waiting. They appear here when an approver sends one.',
-      owner: 'As Head of Loan Ops you own the workarounds and the risk when a stopped payment is released. Payments are read-only here.',
+      oprisk: 'No stopped payments are waiting. They appear here when someone refers one with a reason.',
+      owner: 'As Head of Loan Ops you decide whether a stopped payment is released, but only after Operational Risk has signed off the risk. None are waiting now.',
       audit: 'As Internal Audit (third line) you review payments and evidence but never act on them.',
       board: 'The Board reads results only. Payments are read-only here.',
       vendor: 'As Wipro\'s service manager you see your team\'s results at provider level. Payments are read-only here.'
     }[role] || '';
     var links = {
-      owner: '<a class="btn primary" href="#/register">Open the workarounds</a>',
+      owner: '<a class="btn" href="#/register">Open the workarounds</a>',
       audit: '<a class="btn primary" href="#/oversight">Review sign-offs and download evidence</a>',
       board: '<a class="btn primary" href="#/oversight">Open the Board view</a>',
       vendor: '<a class="btn primary" href="#/analytics">Open the provider view</a>',
       oprisk: '<a class="btn" href="#/monitor">Open the daily checks</a>'
     }[role] || '';
     /* Nothing to do here? Offer practice work, so trying a role never ends on an empty screen. */
-    if (role === 'checker' || role === 'approver' || role === 'oprisk') links = '<button type="button" class="btn primary" data-action="practice">Give me practice payments</button>' + links;
+    if (role === 'checker' || role === 'approver' || role === 'oprisk' || role === 'owner') links = '<button type="button" class="btn primary" data-action="practice">Give me practice payments</button>' + links;
     return '<section class="card empty-state">' + ico('inbox', 'es-icon') + '<h2>' + (readOnlyRole(role) ? 'Payments are read-only for you' : 'Nothing is waiting for you') + '</h2><p>' + esc(hint) + ' Select any payment in the queue to see it.</p>' +
       (links ? '<div class="es-actions">' + links + '</div>' : '') + '</section>';
   }
@@ -1083,15 +1156,20 @@
     var ev = store.evaluateInstr(instr);
     var m = liveModel(ev, instr);
     var c = checkLines(m);
-    var rail = '<section class="card action submit-card" aria-label="Submit"><h3>Ready to submit?</h3>' +
-      '<dl class="sum">' +
+    var sum = '<dl class="sum">' +
       '<div><dt>Sends</dt><dd>' + b(shortAmt(m.total)) + ' to ' + m.lenders + ' lenders</dd></div>' +
       '<div><dt>PCAP check</dt><dd>' + tierText(m.tier, true) + '</dd></div>' +
       '<div><dt>Checks</dt><dd>' + (c.fail ? '<span class="bad-text"><b>' + c.fail + '</b> failed</span>' : 'None failed') + '</dd></div>' +
-      '<div><dt>Next</dt><dd>' + esc(name(instr.checkerId)) + ' checks it</dd></div></dl>' +
-      '<div class="act-buttons"><button type="button" class="btn primary" data-action="submit">' + (editing ? 'Resubmit to checker' : 'Submit to checker') + '</button>' +
-      '<button type="button" class="btn ghost" data-action="flow-step" data-step="1">' + ico('back') + ' Back to instruction</button></div>' +
-      '<p class="hint">PCAP does not stop you submitting. It holds the payment before it can leave the bank' + (m.tier === 3 ? ', and only Operational Risk can release a stopped payment.' : '.') + '</p></section>';
+      (m.tier === 3 ? '' : '<div><dt>Next</dt><dd>' + esc(name(instr.checkerId)) + ' checks it</dd></div>') + '</dl>';
+    var rail = m.tier === 3
+      /* Report 5.5: a stopped payment cannot go to the checker. The maker fixes it, or refers it to Operational Risk with a reason. */
+      ? '<section class="card action submit-card is-t3" aria-label="Stopped"><h3>Stopped. It cannot go to the checker.</h3>' + sum +
+        '<div class="act-buttons"><button type="button" class="btn primary" data-primary data-action="flow-step" data-step="1">' + ico('back') + ' Back to fix it</button></div>' +
+        referBlock('draft', 'refer-new', null, 'Sure it is right? Say why and refer it to Operational Risk') + '</section>'
+      : '<section class="card action submit-card" aria-label="Submit"><h3>Ready to submit?</h3>' + sum +
+        '<div class="act-buttons"><button type="button" class="btn primary" data-action="submit">' + (editing ? 'Resubmit to checker' : 'Submit to checker') + '</button>' +
+        '<button type="button" class="btn ghost" data-action="flow-step" data-step="1">' + ico('back') + ' Back to instruction</button></div>' +
+        '<p class="hint">The checker sees what you see. PCAP checks it again before anyone can release it.</p></section>';
     return grid(decisionBanner(m), consequenceCard(m), rail, [checksCard(m), instructionCard(instr, { edit: true })]);
   }
 
@@ -1175,7 +1253,7 @@
 
   function queueHtml(role, g, selId, hasDetail) {
     var open = queueOpenNow(hasDetail);
-    var waitEmpty = { maker: 'Nothing returned to you.', checker: 'Nothing to check. You are all caught up.', approver: 'Nothing to approve. You are all caught up.', oprisk: 'No stopped payments waiting.' }[role] || '';
+    var waitEmpty = { maker: 'Nothing returned to you.', checker: 'Nothing to check. You are all caught up.', approver: 'Nothing to approve. You are all caught up.', oprisk: 'No stopped payments waiting.', owner: 'No release decisions waiting.' }[role] || '';
     return '<aside class="card queue' + (open ? '' : ' is-collapsed') + '" aria-label="Work queue">' +
       '<div class="q-head">' + (role === 'maker' ? '<button type="button" class="btn primary block" data-action="new">' + ico('plus') + ' New payment</button>' : '') +
       '<button type="button" class="q-toggle" data-action="toggle-queue" aria-expanded="' + open + '" aria-controls="q-body"><span class="q-toggle-title">Work queue</span>' +
@@ -1206,7 +1284,7 @@
 
   /* ------------------------------------------------------------ history */
 
-  var HIST_STATUS = [['', 'All statuses'], ['wait', 'Waiting for checker or approver'], ['HELD', 'Held for Op Risk'], ['RETURNED', 'Returned to maker'], ['RELEASED', 'Released'], ['CANCELLED', 'Cancelled']];
+  var HIST_STATUS = [['', 'All statuses'], ['wait', 'Waiting for checker or approver'], ['HELD', 'Stopped, with Op Risk'], ['ACCEPTED', 'Signed off, waiting for release'], ['RETURNED', 'Returned to maker'], ['RELEASED', 'Released'], ['CANCELLED', 'Cancelled']];
   var HIST_TIER = [['', 'Anything'], ['1', 'Routine (Tier 1)'], ['2', 'Needs a closer look (Tier 2)'], ['3', 'Stopped (Tier 3)']];
 
   function historyHtml(role) {
@@ -1257,7 +1335,10 @@
         (counts[r.id] ? '<span class="seg-count">' + srOnly(', ') + counts[r.id] + srOnly(' waiting') + '</span>' : '') + '</button>';
     }).join('');
     var waiting = store.waitingFor(role).length;
-    return '<div class="desk-top"><div class="desk-title"><h1>Payments ' + code('M2 M3', 'h-code') + '</h1>' + PCAP.views.nowLine('desk', role, { n: waiting, form: role === 'maker' && ui().deskFlow ? ui().deskFlow.step || 1 : 0 }) + '</div>' +
+    var flow = role === 'maker' && ui().deskFlow ? ui().deskFlow.step || 1 : 0;
+    var stopped = false;
+    if (flow === 2) { try { stopped = store.evaluateInstr(draftToInstr(draft())).tier === 3; } catch (e) { stopped = false; } }
+    return '<div class="desk-top"><div class="desk-title"><h1>Payments ' + code('M2 M3', 'h-code') + '</h1>' + PCAP.views.nowLine('desk', role, { n: waiting, form: flow, stopped: stopped }) + '</div>' +
       '<div class="acting"><div class="acting-row"><span class="acting-label" id="acting-label">You are</span><div class="seg" role="group" aria-labelledby="acting-label">' + segs + '</div></div>' +
       '<p class="acting-who">' + whoLine(role) + '</p></div></div>';
   }
@@ -1363,8 +1444,7 @@
     else if (detail.querySelector('#rekey-input')) pick = fine ? '#rekey-input' : null;
     else if (detail.querySelector('#confirm-box')) pick = '#confirm-box';
     else if (detail.querySelector('#opr-reason')) pick = fine ? '#opr-reason' : null;
-    else if (detail.querySelector('#approver-note')) pick = fine ? '#approver-note' : null;
-    else if (role === 'checker' && detail.querySelector('.action.is-t3')) pick = '.d-rail [data-primary]';
+    else if (detail.querySelector('.action.is-t3')) pick = '.d-rail [data-primary]';
     else if (role === 'checker' && checkLinesFor(p).fail) pick = fine ? '#checker-note' : null;
     else {
       var prim = detail.querySelector('.d-rail [data-primary]');
@@ -1526,30 +1606,23 @@
       return;
     }
     var next = null;
-    if (kind === 'release') {
+    if (kind === 'accept') {
       var cat = document.querySelector('input[name="opr-category"]:checked');
-      if (!cat) { showError('opr-err', 'Choose why you are releasing it: false alarm or approved business exception.', 'input[name="opr-category"]'); return; }
+      if (!cat) { showError('opr-err', 'Choose why it may go ahead: false alarm or approved business exception.', 'input[name="opr-category"]'); return; }
       var ownerSel = document.getElementById('opr-owner');
-      PCAP.dialog.ask({ title: 'Release ' + id + '?', text: fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank under a recorded risk sign-off. This cannot be undone.', ok: 'Release', danger: true }).then(function (ok) {
-        if (!ok) return;
-        try {
-          store.opRiskRelease(id, store.roleUserId('oprisk'), cat.value, reason, secs, { ownerId: ownerSel ? ownerSel.value : null });
-        } catch (err) { showError('opr-err', String(err && err.message || err)); return; }
-        var nx = advance('oprisk', id);
-        U.toast(id + ' released under risk sign-off ' + store.payment(id).opRisk.acceptance.id + '. Internal Audit will review it.' + nextNote(nx), 'warn');
-        delete noteDrafts[id + ':opr-reason'];
-        ui().oprRelease = null;
-        PCAP.app.render();
-        scrollToDetail();
-      });
-      return;
-    } else {
-      store.opRiskReject(id, store.roleUserId('oprisk'), reason, secs);
+      try {
+        store.opRiskAccept(id, store.roleUserId('oprisk'), cat.value, reason, secs, { ownerId: ownerSel ? ownerSel.value : null });
+      } catch (err) { showError('opr-err', String(err && err.message || err)); return; }
+      var acc = store.payment(id).opRisk.acceptance;
       next = advance('oprisk', id);
-      U.toast(id + ' rejected and returned to the maker.' + nextNote(next), 'ok');
+      U.toast('Risk sign-off ' + acc.id + ' recorded. ' + id + ' now waits for ' + store.userName(acc.ownerId) + ', Head of Loan Ops, to decide on release.' + nextNote(next), 'warn');
+    } else {
+      try { store.opRiskReject(id, store.roleUserId('oprisk'), reason, secs); } catch (err) { showError('opr-err', String(err && err.message || err)); return; }
+      next = advance('oprisk', id);
+      U.toast(id + ' returned to the maker as a real error.' + nextNote(next), 'ok');
     }
     delete noteDrafts[id + ':opr-reason'];
-    ui().oprRelease = null;
+    ui().oprAccept = null;
     PCAP.app.render();
     scrollToDetail();
   }
@@ -1600,7 +1673,7 @@
       if (!panel) return;
       panel.scrollIntoView({ block: 'start' });
       window.scrollBy(0, -64);
-      var t = panel.querySelector('#confirm-box, #return-reason, #opr-reason, #approver-note, #checker-note, [data-primary]');
+      var t = panel.querySelector('#confirm-box, #return-reason, #opr-reason, #checker-note, [data-primary]');
       if (t) focusEl(t);
     },
     'new': function () {
@@ -1676,10 +1749,6 @@
       if (tooSoon(e)) return;
       var p = store.payment(id);
       var note = ((document.getElementById('checker-note') || {}).value || '').trim();
-      if (store.currentEval(p).tier === 3 && note.length < NOTE_MIN) {
-        showError('check-err', 'PCAP shows a hard stop. To send it on anyway, say why in the note (at least ' + NOTE_MIN + ' characters), or return it to the maker.', '#checker-note');
-        return;
-      }
       store.checkPayment(id, p.checkerId, note);
       delete noteDrafts[id + ':checker-note'];
       var next = advance('checker', id);
@@ -1703,11 +1772,14 @@
       var p = store.payment(id);
       var reason = ((document.getElementById('return-reason') || {}).value || '').trim();
       if (!reason) { showError('return-err', 'Write a reason so the maker knows what to fix.', '#return-reason'); return; }
-      store.returnToMaker(id, stage === 'checker' ? p.checkerId : p.approverId, reason, stage);
+      try {
+        if (stage === 'owner') store.ownerDecline(id, store.roleUserId('owner'), reason);
+        else store.returnToMaker(id, stage === 'checker' ? p.checkerId : p.approverId, reason, stage, stage === 'approver' ? { dwellSec: dwellSec(p) } : null);
+      } catch (err) { showError('return-err', String(err && err.message || err), '#return-reason'); return; }
       ui().deskReturn = null;
       delete noteDrafts[id + ':return-reason'];
-      var next = advance(stage === 'checker' ? 'checker' : 'approver', id);
-      U.toast(id + ' returned to the maker.' + nextNote(next), 'warn');
+      var next = advance(stage === 'checker' ? 'checker' : stage === 'owner' ? 'owner' : 'approver', id);
+      U.toast(id + (stage === 'owner' ? ' not released. It went back to the maker.' : ' returned to the maker.') + nextNote(next), 'warn');
       PCAP.app.render();
       scrollToDetail();
     },
@@ -1756,19 +1828,64 @@
       PCAP.app.render();
       scrollToDetail();
     },
-    escalate: function (btn, id, e) {
+    /* The checker or the approver refers a stopped payment to Operational Risk, with a reason. */
+    refer: function (btn, id, e) {
       if (tooSoon(e)) return;
-      var dwell = dwellSec(store.payment(id));
-      var note = (document.getElementById('approver-note') || {}).value || '';
-      store.approverEscalate(id, { dwellSec: dwell, note: note.trim() });
-      delete noteDrafts[id + ':approver-note'];
-      var next = advance('approver', id);
-      U.toast(id + ' stopped and sent to Operational Risk.' + nextNote(next), 'bad');
+      var p = store.payment(id);
+      var reason = ((document.getElementById('refer-reason') || {}).value || '').trim();
+      var min = E.DEFAULT_CONFIG.reasonMinChars;
+      if (reason.length < min) { showError('refer-err', 'Write why first: at least ' + min + ' characters (you have ' + reason.length + '). Operational Risk reads it.', '#refer-reason'); return; }
+      var stage = p.status === 'SUBMITTED' ? 'checker' : 'approver';
+      try { store.refer(id, stage === 'checker' ? p.checkerId : p.approverId, reason, { dwellSec: stage === 'approver' ? dwellSec(p) : null }); }
+      catch (err) { showError('refer-err', String(err && err.message || err)); return; }
+      delete noteDrafts[id + ':refer-reason'];
+      var next = advance(stage, id);
+      U.toast(id + ' referred to Operational Risk. It cannot move on until they assess it.' + nextNote(next), 'warn');
+      PCAP.app.render();
+      scrollToDetail();
+    },
+    /* The maker refers a stopped payment straight from the review step. It never goes to the checker. */
+    'refer-new': function () {
+      var d = draft();
+      var err = validateDraft(d);
+      if (err) { U.toast(err, 'bad'); ui().deskFlow = { step: 1 }; PCAP.app.render(); return; }
+      var reason = ((document.getElementById('refer-reason') || {}).value || '').trim();
+      var min = E.DEFAULT_CONFIG.reasonMinChars;
+      if (reason.length < min) { showError('refer-err', 'Write why you think it is right: at least ' + min + ' characters (you have ' + reason.length + '). Operational Risk reads it.', '#refer-reason'); return; }
+      var p;
+      try { p = store.referInstruction(draftToInstr(d), store.roleUserId('maker'), reason, d.editingId); }
+      catch (x) { showError('refer-err', String(x && x.message || x)); return; }
+      var u = ui();
+      u.makerDefaults = { checkerId: d.checkerId, approverId: d.approverId };
+      u.makerDraft = blankDraft();
+      u.deskFlow = null;
+      u.deskSel = p.id;
+      delete noteDrafts['draft:refer-reason'];
+      U.toast(p.id + ' referred to Operational Risk. While it is stopped it cannot go to the checker.', 'warn');
+      store.save();
       PCAP.app.render();
       scrollToDetail();
     },
     'opr-reject': function (btn, id) { oprDecide(id, 'reject'); },
-    'opr-release': function (btn, id) { oprDecide(id, 'release'); },
+    'opr-accept': function (btn, id) { oprDecide(id, 'accept'); },
+    /* Only the Head of Loan Ops releases a stopped payment, as a fresh decision. PCAP checks again first. */
+    'owner-release': function (btn, id, e) {
+      if (tooSoon(e)) return;
+      var p = store.payment(id);
+      var ev = store.currentEval(p);
+      var acc = p.opRisk && p.opRisk.acceptance;
+      var secs = oprPerf['owner:' + id] ? (performance.now() - oprPerf['owner:' + id]) / 1000 : null;
+      PCAP.dialog.ask({ title: 'Release ' + id + '?', text: fullAmt(ev.consequence.externalTotal) + ' will leave the bank under risk sign-off ' + (acc ? acc.id : '') + '. PCAP checks the rules and your authority again first. This cannot be undone.',
+        ok: 'Release ' + shortAmt(ev.consequence.externalTotal), danger: true }).then(function (ok) {
+        if (!ok) return;
+        try { store.ownerRelease(id, store.roleUserId('owner'), { decideSec: secs }); }
+        catch (err) { showError('owner-err', String(err && err.message || err)); return; }
+        var next = advance('owner', id);
+        U.toast(id + ' released. ' + shortAmt(ev.consequence.externalTotal) + ' left the bank under ' + (acc ? acc.id : 'the sign-off') + '. Internal Audit will review it.' + nextNote(next), 'warn');
+        PCAP.app.render();
+        scrollToDetail();
+      });
+    },
     edit: function (btn, id) {
       ui().makerDraft = editDraft(id);
       ui().deskFlow = { step: 1 };
@@ -1855,7 +1972,7 @@
       el.__deskToggle = true;
       el.addEventListener('toggle', function (e) {
         var d = e.target;
-        if (d && d.classList && d.classList.contains('release-path')) ui().oprRelease = d.open ? ui().deskSel : null;
+        if (d && d.classList && d.classList.contains('accept-path')) ui().oprAccept = d.open ? ui().deskSel : null;
       }, true);
     }
     el.oninput = function (e) {
@@ -1865,8 +1982,8 @@
       var k = t.getAttribute && t.getAttribute('data-note');
       if (k) noteDrafts[k] = t.value;
       clearErrors(t);
-      if (t.id === 'opr-reason') {
-        var c = document.getElementById('opr-count'), min = +t.getAttribute('data-min') || 15, have = t.value.trim().length;
+      if (t.getAttribute && t.getAttribute('data-min')) {
+        var c = document.getElementById(t.id + '-count'), min = +t.getAttribute('data-min') || 15, have = t.value.trim().length;
         if (c) { c.textContent = countText(have, min); c.classList.toggle('is-ok', have >= min); }
       }
     };

@@ -26,7 +26,7 @@
     s.events.filter(function (e) { return e.type === 'RECON_RUN' && e.data && e.data.escapes; }).forEach(function (e) { e.data.escapes.forEach(function (id) { escapes[id] = 1; }); });
     var holds = wk.filter(function (e) { return e.type === 'HELD'; }).length;
     var rej = wk.filter(function (e) { return e.type === 'OPRISK_REJECTED'; }).length;
-    var rel = wk.filter(function (e) { return e.type === 'OPRISK_RELEASED'; }).length;
+    var rel = wk.filter(function (e) { return e.type === 'RISK_ACCEPTED'; }).length;
     var realShare = rej + rel ? rej / (rej + rel) : null;
     var lapsed = health.controls.filter(function (c) { return c.id === 'CC-04'; })[0].lapsed || 0;
     var late = s.reconRuns.filter(function (r) { return r.time > E.DEFAULT_CONFIG.reconCutoff && E.daysBetween(r.date, store.today()) <= 30; }).length;
@@ -47,7 +47,7 @@
     return [
       { label: 'Released with a workaround not on the list', value: String(unreg), target: 'Target 0', rag: unreg ? 'red' : 'green', hist: k.unregisteredReleases.concat([unreg]) },
       { label: 'Escapes: errors found after release', value: String(Object.keys(escapes).length), target: 'Target 0, each root-caused', rag: Object.keys(escapes).length ? 'red' : 'green', hist: k.escapes.concat([Object.keys(escapes).length]) },
-      { label: 'Payments stopped this week', value: String(holds), target: 'Watch for spikes', rag: rag3(holds, 5, 10), hist: k.tier3Holds.concat([holds]) },
+      { label: 'Stopped payments referred to Op Risk this week', value: String(holds), target: 'Watch for spikes', rag: rag3(holds, 5, 10), hist: k.tier3Holds.concat([holds]) },
       { label: 'Stopped payments that were real errors', value: realShare == null ? 'n/a' : U.fmtPctPlain(realShare, 0), target: 'Green at 50% or more', rag: realShare == null ? 'green' : realShare >= 0.5 ? 'green' : realShare >= 0.25 ? 'amber' : 'red', hist: k.holdsRealShare.concat([realShare == null ? k.holdsRealShare[k.holdsRealShare.length - 1] : realShare]), pct: true },
       { label: 'Workarounds needing attention', code: 'R6 roadmap', value: String(legacy.length) + ' of ' + active.length, target: legacy.length ? legacy.map(function (r) { return r.id; }).join(', ') + ': dispensation due or review late' : 'Each has an owner, a refresh plan and an in-date dispensation', rag: legacy.length === 0 ? 'green' : legacy.length <= 2 ? 'amber' : 'red', hist: k.legacyAttention.concat([legacy.length]) },
       { label: 'Highest rubber-stamp score', code: 'R-08', value: worst ? String(worst.score) : 'n/a', target: worst ? worst.team : '', rag: worst ? worst.rag : 'green', hist: worstHist.concat([worst ? worst.score : 0]) },
@@ -66,7 +66,7 @@
     function count(fn) { return ev.filter(fn).length; }
     var released = s.payments.filter(function (p) { return p.status === 'RELEASED'; });
     var overrideRel = released.filter(function (p) { return p.overrideUsedAtRelease; });
-    var inHouse = overrideRel.filter(function (p) { var u = store.user(p.viaOpRisk ? p.approverId : p.releasedBy); return u && u.inHouse; }).length;
+    var inHouse = overrideRel.filter(function (p) { var u = store.user(p.releasedBy); return u && u.inHouse; }).length;
     var certOk = overrideRel.filter(function (p) { return p.certCurrentAtRelease !== false; }).length;
     var uses = ev.filter(function (e) { return e.type === 'OVERRIDE_USE'; });
     var mapped = uses.filter(function (e) { return e.data && e.data.mapped; }).length;
@@ -81,11 +81,12 @@
     var tests = count(function (e) { return e.type === 'CONTROL_TEST' || e.type === 'RECON_RUN' || e.type === 'SYNTHETIC_TEST'; });
     var overdueTests = health.controls.filter(function (c) { return c.rag !== 'green'; }).length;
     var vendorSentOn = PCAP.views.analytics.outsourcedTeams().reduce(function (n, v) { return n + v.sentOnTier3; }, 0);
-    var releasedNoGate = released.filter(function (p) { return !p.viaOpRisk && !ev.some(function (e) { return e.paymentId === p.id && e.rule === 'R-05' && (e.type === 'GATE_CHECK'); }); }).length;
+    /* Every release needs a gate check: the approver's (GATE_CHECK) or, for a stopped payment, the Head of Loan Ops' (RELEASE_CHECK). */
+    var releasedNoGate = released.filter(function (p) { return !ev.some(function (e) { return e.paymentId === p.id && e.rule === 'R-05' && (e.type === 'GATE_CHECK' || e.type === 'RELEASE_CHECK'); }); }).length;
 
     var live = {
       O1: { text: count(function (e) { return e.type === 'GATE_CHECK' && e.rule === 'R-05'; }) + ' entitlement checks passed, ' + count(function (e) { return e.type === 'BLOCKED_ATTEMPT' && e.rule === 'R-05'; }) + ' blocked attempts on R-05. Releases without a gate check: ' + releasedNoGate + '.', rag: releasedNoGate ? 'red' : 'green' },
-      O2: { text: rekeys.length + ' blind re-keys (' + slips + ' slips), ' + count(function (e) { return e.type === 'STATEMENT_SHOWN'; }) + ' consequence statements shown, ' + count(function (e) { return e.type === 'HELD'; }) + ' Tier 3 hard stops.', rag: rekeys.length && slips / rekeys.length > 0.1 ? 'amber' : 'green' },
+      O2: { text: rekeys.length + ' blind re-keys (' + slips + ' slips), ' + count(function (e) { return e.type === 'STATEMENT_SHOWN'; }) + ' consequence statements shown, ' + count(function (e) { return e.type === 'HELD'; }) + ' Tier 3 hard stops referred to Operational Risk, none sent on.', rag: rekeys.length && slips / rekeys.length > 0.1 ? 'amber' : 'green' },
       O3: { text: (hc['CC-04'].lapsed || 0) + ' lapsed and ' + (hc['CC-04'].expiring || 0) + ' expiring certifications. Override releases by a certified approver: ' + certOk + ' of ' + overrideRel.length + '.', rag: certOk < overrideRel.length ? 'red' : hc['CC-04'].rag },
       O4: { text: (uses.length ? Math.round((100 * mapped) / uses.length) : 100) + '% of override use mapped to a register entry (' + mapped + ' of ' + uses.length + '). Released on an unregistered override: ' + unregRel + '.', rag: unregRel ? 'red' : mapped < uses.length ? 'amber' : 'green' },
       O5: { text: 'Override releases with an in-house approver: ' + inHouse + ' of ' + overrideRel.length + '. Owner attestations in 180 days: ' + reviews180 + '. Every register entry has a named owner. Outsourced checks sent on at Tier 3: ' + vendorSentOn + '.', rag: inHouse < overrideRel.length ? 'red' : hc['CC-02'].rag },
@@ -117,8 +118,10 @@
       rules: Object.keys(E.RULES).map(function (k) { var r = E.RULES[k]; return { id: r.id, name: r.name, module: r.module, logic: r.logic, action: r.action, obligations: r.obligations }; }),
       control_health: store.controlHealth(),
       kris: kris().map(function (k) { return { kri: k.label, value: k.value, target: k.target, status: k.rag }; }),
-      risk_acceptances: store.riskAcceptances().map(function (x) { var a = x.acceptance; return { id: a.id, payment_id: a.paymentId, category: a.category, reason: a.reason, risk_owner: store.userName(a.ownerId), recorded_by: store.userName(a.recordedById), accepted_on: a.acceptedOn, expires: a.expires, scope: a.scope, follow_up: a.followUp, assessed: a.assessed, internal_audit_review: a.review ? { by: store.userName(a.review.by), on: a.review.date, outcome: a.review.outcome, note: a.review.note } : null }; }),
-      payments: s.payments.map(function (p) { return { id: p.id, loan: p.loanId, status: p.status, tier_at_submit: p.atSubmit ? p.atSubmit.tier : null, rules_at_submit: p.atSubmit ? p.atSubmit.hits : [], released_external: p.releasedExternal || null, expected_at_release: p.expectedAtRelease || null, released_by: p.releasedBy ? store.userName(p.releasedBy) : null, via_operational_risk: !!p.viaOpRisk }; }),
+      risk_acceptances: store.riskAcceptances().map(function (x) { var a = x.acceptance; return { id: a.id, payment_id: a.paymentId, category: a.category, reason: a.reason, risk_owner: store.userName(a.ownerId), recorded_by: store.userName(a.recordedById), accepted_on: a.acceptedOn, expires: a.expires, scope: a.scope, follow_up: a.followUp, assessed: a.assessed, status: a.status || null,
+        release_decision: a.release ? { by: store.userName(a.release.by), on: a.release.date, released: !a.release.declined, reason: a.release.reason || null, rules_at_release: a.release.rulesAtRelease || null, releaser_checks: a.release.declined ? null : 'passed (authority and independence, rules re-run)' } : null,
+        internal_audit_review: a.review ? { by: store.userName(a.review.by), on: a.review.date, outcome: a.review.outcome, note: a.review.note } : null }; }),
+      payments: s.payments.map(function (p) { return { id: p.id, loan: p.loanId, status: p.status, tier_at_submit: p.atSubmit ? p.atSubmit.tier : null, rules_at_submit: p.atSubmit ? p.atSubmit.hits : [], referred_by: p.referral ? store.userName(p.referral.by) : null, referred_from: p.referral ? p.referral.stage : null, released_external: p.releasedExternal || null, expected_at_release: p.expectedAtRelease || null, released_by: p.releasedBy ? store.userName(p.releasedBy) : null, released_under_risk_acceptance: !!p.viaAcceptance }; }),
       events: events
     };
     var cols = ['event_id', 'timestamp', 'business_date', 'type', 'payment_id', 'module', 'rule', 'obligations', 'result', 'actor_id', 'actor_name', 'actor_role', 'actor_employer', 'detail', 'seeded'];
@@ -136,23 +139,32 @@
         '<div class="small muted">' + U.esc(store.userName(r.by) + ', ' + U.fmtDate(r.date)) + '</div>' + (r.note ? '<div class="small">' + U.esc(r.note) + '</div>' : '');
     }
     if (!isAudit) return '<span class="small muted">Waiting for Internal Audit</span>';
-    return '<div class="ra-acts"><button class="btn small primary" data-act="ra-review" data-id="' + U.esc(a.paymentId) + '">No issue</button>' +
-      '<button class="btn small" data-act="ra-finding" data-id="' + U.esc(a.paymentId) + '">Raise a finding</button></div>';
+    return '<div class="ra-acts"><button class="btn small primary" data-act="ra-review" data-id="' + U.esc(a.id) + '">No issue</button>' +
+      '<button class="btn small" data-act="ra-finding" data-id="' + U.esc(a.id) + '">Raise a finding</button></div>';
+  }
+
+  /* What the Head of Loan Ops decided under the sign-off, and whether PCAP's checks at release passed. */
+  function releaseCell(a) {
+    var r = a.release;
+    if (r && !r.declined) return U.ragChip('green', 'Released') + '<div class="small">' + U.esc(store.userName(r.by) + ', Head of Loan Ops, ' + U.fmtDate(r.date)) + '. PCAP re-ran the rules and checked the releaser.</div>';
+    if (r && r.declined) return U.ragChip('amber', 'Not released') + '<div class="small">' + U.esc(store.userName(r.by) + ': ' + r.reason) + '</div>';
+    if (a.expires < store.today()) return '<span class="small muted">Ended without a release</span>';
+    return '<span class="small muted">Waiting for ' + U.esc(store.userName(a.ownerId)) + ', Head of Loan Ops</span>';
   }
 
   function acceptanceCard(role) {
     var isAudit = role === 'audit';
     var list = store.riskAcceptances();
     var open = list.filter(function (x) { return !x.acceptance.review; }).length;
-    var body = list.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Sign-off</th><th>Internal Audit review</th><th>Payment</th><th>Why it was released</th><th>Manager who owns the risk</th><th>Recorded by</th><th>What PCAP found</th><th>Ends</th><th>Follow-up</th></tr></thead><tbody>' +
+    var body = list.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Sign-off</th><th>Internal Audit review</th><th>Payment</th><th>Why it may go ahead</th><th>Manager who owns the risk</th><th>Recorded by</th><th>Release decision</th><th>What PCAP found</th><th>Ends</th><th>Follow-up</th></tr></thead><tbody>' +
       list.map(function (x) {
         var a = x.acceptance, as = a.assessed || {};
-        return '<tr><td class="mono">' + U.esc(a.id) + '</td><td>' + reviewCell(a, isAudit) + '</td><td><a href="#" data-open-payment="' + U.esc(a.paymentId) + '">' + U.esc(a.paymentId) + '</a></td><td class="small">' + U.esc(a.category) + '. ' + U.esc(a.reason) + '</td><td>' + U.esc(store.userName(a.ownerId)) + '</td><td>' + U.esc(store.userName(a.recordedById)) + '</td><td class="small">' + U.esc(PCAP.plain.tier(as.tier).label) + (as.rules && as.rules.length ? '<span class="code-tag">, Tier ' + U.esc(as.tier) + ', ' + U.esc(as.rules.join(', ')) + '</span>' : '') + '. ' + U.esc(U.fmtCompact(as.external)) + ' out, ' + U.esc(U.fmtCompact(as.expected)) + ' expected</td><td>' + U.esc(U.fmtDate(a.expires)) + '</td><td class="small">' + U.say(a.followUp) + '</td></tr>';
+        return '<tr><td class="mono">' + U.esc(a.id) + '</td><td>' + reviewCell(a, isAudit) + '</td><td><a href="#" data-open-payment="' + U.esc(x.payment.id) + '">' + U.esc(x.payment.id) + '</a></td><td class="small">' + U.esc(a.category) + '. ' + U.esc(a.reason) + '</td><td>' + U.esc(store.userName(a.ownerId)) + '</td><td>' + U.esc(store.userName(a.recordedById)) + ' <span class="small muted">(Operational Risk, cannot release)</span></td><td class="small">' + releaseCell(a) + '</td><td class="small">' + U.esc(PCAP.plain.tier(as.tier).label) + (as.rules && as.rules.length ? '<span class="code-tag">, Tier ' + U.esc(as.tier) + ', ' + U.esc(as.rules.join(', ')) + '</span>' : '') + '. ' + U.esc(U.fmtCompact(as.external)) + ' out, ' + U.esc(U.fmtCompact(as.expected)) + ' expected</td><td>' + U.esc(U.fmtDate(a.expires)) + '</td><td class="small">' + U.say(a.followUp) + '</td></tr>';
       }).join('') + '</tbody></table></div>'
-      : '<p class="empty">No stopped payment has been released yet, so there is nothing to review. If Operational Risk releases one, its sign-off appears here' + (isAudit ? ' and this screen\'s tab shows a count.' : '.') + '</p>';
+      : '<p class="empty">No risk sign-off has been recorded yet, so there is nothing to review. When Operational Risk signs off a stopped payment, it appears here' + (isAudit ? ' and this screen\'s tab shows a count.' : '.') + '</p>';
     return '<div class="card" id="acceptances"><div class="card-head"><h2>Risk sign-offs for Internal Audit to review</h2><span class="muted small">' +
-      (list.length ? (open ? open + ' of ' + list.length + ' still to review' : 'All ' + list.length + ' reviewed') : 'Every stopped payment released anyway, with its owner, reason and end date') + '</span></div>' + body +
-      '<p class="muted small">When a stopped payment is released anyway, the bank is accepting a risk. Each sign-off covers one payment and ends with the day, so nothing is approved in advance.' +
+      (list.length ? (open ? open + ' of ' + list.length + ' still to review' : 'All ' + list.length + ' reviewed') : 'Every stopped payment signed off, with its owner, reason, release decision and end date') + '</span></div>' + body +
+      '<p class="muted small">When Operational Risk signs off a stopped payment, the bank is accepting a risk. Operational Risk cannot release the money: only the Head of Loan Ops can, as a fresh decision, after PCAP checks again. Each sign-off covers one payment and ends with the day, so nothing is approved in advance.' +
       (isAudit ? ' Your review is recorded in the activity log and the evidence pack. Open the payment to see its full trail first.' : '') + ' ' + U.codeTag('L5 risk acceptance') + '</p></div>';
   }
 
@@ -226,9 +238,7 @@
           PCAP.app.render();
         };
         if (act === 'ra-review') { record(''); return; }
-        var p = store.payment(pid);
-        var accId = p && p.opRisk && p.opRisk.acceptance ? p.opRisk.acceptance.id : pid;
-        PCAP.dialog.reason({ title: 'Raise a finding on ' + accId, text: 'Describe what the risk owner has to fix. It is recorded in the activity log and the evidence pack.',
+        PCAP.dialog.reason({ title: 'Raise a finding on ' + pid, text: 'Describe what the risk owner has to fix. It is recorded in the activity log and the evidence pack.',
           label: 'The finding', placeholder: 'e.g. The reason does not say who confirmed the exception.', min: E.DEFAULT_CONFIG.reasonMinChars, ok: 'Record the finding', danger: true,
           why: 'The owner needs to know what to fix.' }).then(function (note) { if (note != null) record(note); });
         return;

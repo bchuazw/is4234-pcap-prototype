@@ -352,9 +352,10 @@ test('M4 privacy: every approver team in the demo has at least 3 approvers, and 
   }
   const v = E.summariseOutsourced([
     { team: 'Wipro', kind: 'keyed', tier: 3 }, { team: 'Wipro', kind: 'keyed', tier: 1 },
-    { team: 'Wipro', kind: 'checked', tier: 3 }, { team: 'Wipro', kind: 'checked', tier: 1 }, { team: 'Wipro', kind: 'returned', tier: 3 }
+    { team: 'Wipro', kind: 'checked', tier: 3 }, { team: 'Wipro', kind: 'checked', tier: 1 }, { team: 'Wipro', kind: 'returned', tier: 3 },
+    { team: 'Wipro', kind: 'referred', tier: 3 }
   ]);
-  assert.deepEqual(v, [{ team: 'Wipro', keyed: 2, keyedTier3: 1, checked: 2, sentOnTier3: 1, returned: 1 }]);
+  assert.deepEqual(v, [{ team: 'Wipro', keyed: 2, keyedTier3: 1, checked: 2, sentOnTier3: 1, returned: 1, referred: 1 }]);
 });
 
 test('R-08 Rubber-stamp score: fast looks and fast approvals score red, careful review scores green', () => {

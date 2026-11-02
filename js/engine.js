@@ -807,14 +807,16 @@
   /* M4: outsourced checks at team level (MAS Notice 658 monitoring)     */
   /* ------------------------------------------------------------------ */
 
-  /* rows: [{ team, kind: 'keyed'|'checked'|'returned', tier }]. Tier is PCAP's tier when the step happened. */
+  /* rows: [{ team, kind: 'keyed'|'checked'|'returned'|'referred', tier }]. Tier is PCAP's tier when the step happened.
+     sentOnTier3 stays for older evidence: PCAP no longer lets a check send on a stopped payment. */
   function summariseOutsourced(rows) {
     var by = {};
     (rows || []).forEach(function (r) {
-      var t = by[r.team] = by[r.team] || { team: r.team, keyed: 0, keyedTier3: 0, checked: 0, sentOnTier3: 0, returned: 0 };
+      var t = by[r.team] = by[r.team] || { team: r.team, keyed: 0, keyedTier3: 0, checked: 0, sentOnTier3: 0, returned: 0, referred: 0 };
       if (r.kind === 'keyed') { t.keyed += 1; if (r.tier === 3) t.keyedTier3 += 1; }
       if (r.kind === 'checked') { t.checked += 1; if (r.tier === 3) t.sentOnTier3 += 1; }
       if (r.kind === 'returned') t.returned += 1;
+      if (r.kind === 'referred') t.referred += 1;
     });
     return Object.keys(by).sort().map(function (k) { return by[k]; });
   }

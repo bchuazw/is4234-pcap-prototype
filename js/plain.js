@@ -37,7 +37,7 @@
     2: { n: 2, label: 'Needs a closer look', short: 'Closer look', code: 'Tier 2',
       what: 'Something is a little off, principal leaves the bank, or a workaround is used. An in-house approver types the amount from their own source, then confirms.' },
     3: { n: 3, label: 'Stopped', short: 'Stopped', code: 'Tier 3',
-      what: 'The approver cannot release it. Only Operational Risk, a separate team, can decide.' }
+      what: 'It cannot be sent on. The maker fixes it, or it goes to Operational Risk with a reason. Only the Head of Loan Ops can release it, after a risk sign-off.' }
   };
   function tier(n) { return TIERS[n] || TIERS[1]; }
 
@@ -46,19 +46,20 @@
     maker: { name: 'Maker', who: 'keys payments', short: 'Maker' },
     checker: { name: 'Checker', who: 'checks the maker\'s work', short: 'Checker' },
     approver: { name: 'Approver', who: 'releases payments', short: 'Approver' },
-    oprisk: { name: 'Operational Risk', who: 'decides on stopped payments', short: 'Op Risk' },
-    owner: { name: 'Head of Loan Ops', who: 'owns the workarounds', short: 'Head of Loan Ops' },
+    oprisk: { name: 'Operational Risk', who: 'assesses stopped payments', short: 'Op Risk' },
+    owner: { name: 'Head of Loan Ops', who: 'owns the risk and the workarounds', short: 'Head of Loan Ops' },
     audit: { name: 'Internal Audit', who: 'checks the evidence', short: 'Internal Audit' },
     board: { name: 'Board Risk Committee', who: 'reads the results', short: 'Board' },
     vendor: { name: 'Wipro service manager', who: 'sees the provider\'s results', short: 'Wipro' }
   };
   function roleName(id) { return (ROLES[id] || { name: id }).name; }
 
-  /* "Try it yourself" on Home: four plain cards. */
+  /* "Try it yourself" on Home: five plain cards. */
   var CARDS = [
     { role: 'maker', title: 'I key payments', line: 'Fill in a payment. PCAP tells you what it will really do before you send it on.' },
     { role: 'approver', title: 'I approve payments', line: 'Read what each payment will really do, then release it or stop it.' },
-    { role: 'oprisk', title: 'I review risks', line: 'Decide on the payments PCAP stopped, and check the daily safety checks ran.' },
+    { role: 'oprisk', title: 'I review risks', line: 'Assess the payments PCAP stopped: return them or sign off the risk. Check the daily safety checks ran.' },
+    { role: 'owner', title: 'I own the risk', line: 'Decide whether a stopped payment that Operational Risk signed off is released. Keep the workarounds in date.' },
     { role: 'audit', title: 'I oversee and audit', line: 'Review risk sign-offs and download the evidence for every payment.' }
   ];
 
@@ -75,6 +76,7 @@
     switch (route) {
       case 'desk':
         if (role === 'maker') {
+          if (c.form === 2 && c.stopped) return 'Payments you key go to a checker, then an approver. PCAP stopped this one, so it cannot go on: go back and fix it, or refer it to Operational Risk with a reason.';
           if (c.form === 2) return 'Payments you key go to a checker, then an approver. Read what PCAP says this one will really do, then send it to the checker or go back and fix it.';
           if (c.form) return 'Payments you key go to a checker, then an approver. Fill in the form and press Review payment to see what it will really do before you send it.';
           return n
@@ -88,12 +90,15 @@
           ? 'Release payments once you know what they will really do. ' + plural(n, 'payment is', 'payments are') + ' waiting. The first is open: read what it will do, then release it or stop it.'
           : 'Release payments once you know what they will really do. Nothing is waiting now. Payments appear here after a checker sends them on.';
         if (role === 'oprisk') return n
-          ? 'Only you can decide on a payment PCAP stopped. ' + plural(n, 'payment is', 'payments are') + ' waiting: read why it was held, then send it back or release it with a written sign-off.'
-          : 'Only you can decide on a payment PCAP stopped. None are waiting now. They appear here when an approver sends one.';
+          ? 'You assess the payments PCAP stopped, but you cannot release them. ' + plural(n, 'payment is', 'payments are') + ' waiting: read why it was stopped, then return it or sign off the risk.'
+          : 'You assess the payments PCAP stopped, but you cannot release them. None are waiting now. They appear here when someone refers one.';
+        if (role === 'owner') return n
+          ? 'Only you can release a stopped payment, and only after Operational Risk signs off the risk. ' + plural(n, 'decision is', 'decisions are') + ' waiting: read the sign-off, then release it or send it back.'
+          : 'Only you can release a stopped payment, and only after Operational Risk signs off the risk. Nothing is waiting for you now.';
         return 'Every payment and where it is now. You can look, but you cannot act on payments in this role.';
       case 'register':
         if (role === 'owner') return n
-          ? 'The manual workarounds staff use when the core system cannot do something. ' + plural(n, 'item needs', 'items need') + ' you: use the button next to each one.'
+          ? 'The manual workarounds staff use when the core system cannot do something, and your release decisions. ' + plural(n, 'item needs', 'items need') + ' you: use the button next to each one.'
           : 'The manual workarounds staff use when the core system cannot do something. Nothing needs you now. Every workaround is reviewed and in date.';
         return 'The manual workarounds staff use when the core system cannot do something. A payment that uses one not listed here is stopped. Only the Head of Loan Ops can change this list.';
       case 'analytics':

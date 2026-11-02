@@ -53,19 +53,19 @@
         return [
           item(String(w.checked), 'checked'),
           item(String(w.checkerReturns), 'returned'),
-          item(String(w.sentOnTier3), pl(w.sentOnTier3, 'stopped payment sent on', 'stopped payments sent on'), { tone: w.sentOnTier3 ? 'warn' : '', long: 'Checks that sent on a payment PCAP had stopped. Counted for the provider, never by name.' }),
-          item('0 s', 'extra unless PCAP stops a payment', { long: 'PCAP asks a checker for nothing extra on most payments. Only when it stops a payment does it ask for a note to send it on.' })
+          item(String(w.referred.checker), pl(w.referred.checker, 'stopped payment referred', 'stopped payments referred'), { long: 'Payments that became stopped after they were keyed, referred to Operational Risk with a reason. A stopped payment cannot be sent on.' }),
+          item('0 s', 'extra on most payments', { long: 'PCAP asks a checker for nothing extra on most payments. A payment it stops cannot be sent on, so the checker returns it or refers it.' })
         ];
       case 'approver':
         return [
           item(String(approverReleased), 'released, ' + w.releasedByTier[1] + ' routine with no extra step'),
           item(secs(w.medianDwellTier1), 'median on a routine payment', { long: 'Median time approvers spent on a routine payment this week, measured on this screen.' }),
           item(secs(x.tier23MedianSec), 'added when it needs a closer look', { est: true, long: 'Median approver time added by typing your own figure and confirming, from the synthetic test model.' }),
-          item(String(w.holds), pl(w.holds, 'stopped payment sent to Op Risk', 'stopped payments sent to Op Risk'))
+          item(String(w.referred.approver), pl(w.referred.approver, 'stopped payment referred to Op Risk', 'stopped payments referred to Op Risk'))
         ];
       case 'oprisk':
         return [
-          item(String(w.heldRejected + w.heldReleased), pl(w.heldRejected + w.heldReleased, 'stopped payment decided', 'stopped payments decided') + ' (' + w.heldRejected + ' ' + pl(w.heldRejected, 'real error', 'real errors') + ')'),
+          item(String(w.heldRejected + w.acceptances), pl(w.heldRejected + w.acceptances, 'stopped payment assessed', 'stopped payments assessed') + ' (' + w.heldRejected + ' ' + pl(w.heldRejected, 'real error', 'real errors') + ')'),
           item(U.fmtCompact(w.keptBack), 'kept from leaving', { long: 'Money that would have left the bank in error, kept back by holds you confirmed as real errors this week.' }),
           item(w.medianMinutesHeld == null ? 'n/a' : Math.round(w.medianMinutesHeld) + ' min', 'median wait for your decision'),
           item(String(todoOn('monitor')), 'of your daily checks not green', { tone: todoOn('monitor') ? 'warn' : '' })
@@ -74,6 +74,7 @@
         var uid = store.roleUserId('owner');
         var mine = store.riskAcceptances().filter(function (r) { return r.acceptance.ownerId === uid && r.acceptance.expires >= store.today(); }).length;
         return [
+          item(String(todoOn('desk')), pl(todoOn('desk'), 'release decision waiting', 'release decisions waiting'), { tone: todoOn('desk') ? 'warn' : '', long: 'Stopped payments that Operational Risk signed off. Only you can release them.' }),
           item(String(todoOn('register')), pl(todoOn('register'), 'workaround item needs you', 'workaround items need you'), { tone: todoOn('register') ? 'warn' : '' }),
           item(String(mine), pl(mine, 'risk sign-off you own today', 'risk sign-offs you own today')),
           item(String(w.attestations), 'reviews you signed')
@@ -95,7 +96,7 @@
         return [
           item(String(w.keyed + w.resubmitted), 'keyed by Wipro makers'),
           item(String(w.checked), 'checked by Wipro checkers'),
-          item(String(w.sentOnTier3), pl(w.sentOnTier3, 'stopped payment sent on', 'stopped payments sent on'), { tone: w.sentOnTier3 ? 'warn' : '' }),
+          item(String(w.keyedTier3), pl(w.keyedTier3, 'stopped when keyed', 'stopped when keyed'), { long: 'Payments PCAP stopped as they were keyed. They cannot go on to a checker.' }),
           item(String(w.checkerReturns), 'returned by a checker')
         ];
     }
@@ -119,10 +120,6 @@
       var red = views.oversight.kris().filter(function (k) { return k.rag === 'red'; }).length;
       if (red) items.push({ route: 'oversight', count: red, text: red + ' Board number' + (red === 1 ? '' : 's') + ' red' });
     }
-    if (role === 'vendor') {
-      var n = week().sentOnTier3;
-      if (n) items.push({ route: 'analytics', count: n, text: n + ' check' + (n === 1 ? '' : 's') + ' sent on a stopped payment this week' });
-    }
     return { role: role, items: items, total: items.reduce(function (s, x) { return s + x.count; }, 0) };
   }
 
@@ -137,7 +134,7 @@
       tile(Math.round(x.meanSec) + ' s', 'approver time added per payment, on average', U.esc('Median ' + Math.round(x.tier1MedianSec) + ' s on a routine payment (reading one sentence) and ' + Math.round(x.tier23MedianSec) + ' s when it needs a closer look. About ' + x.approverHoursPerMonth + ' approver hours a month in all.'), true) +
       tile(x.stoppedBeforeRelease + ' of ' + x.errors, 'planted mistakes stopped before release', U.esc('The other ' + x.foundSameDay + ' were found the same day by the reconciliation, none missed (synthetic test). On Payments this week: ' + w.heldRejected + ' real errors stopped, ' + U.fmtCompact(w.keptBack) + ' kept from leaving.'), false) +
       tile('Every payment', 'has its audit evidence collected automatically', U.esc(w.events + ' steps recorded this week, covering ' + w.paymentsCovered + ' payments. Without PCAP, Internal Audit samples about ' + x.assumptions.auditSamplePerQuarter + ' payments a quarter by hand, about ' + x.auditManualHoursPerQuarter + ' hours (assumption), which covers ' + pct(x.auditManualCoverage) + ' of payments.'), false) +
-      '</div><p class="muted small">Costs to each group: approvers about ' + x.approverHoursPerMonth + ' h a month, Operational Risk about ' + x.opRiskHoursPerMonth + ' h a month for ' + x.tier3 + ' stopped payments, makers one review screen per payment, checkers a note only on a stopped payment. ' +
+      '</div><p class="muted small">Costs to each group: approvers about ' + x.approverHoursPerMonth + ' h a month, Operational Risk about ' + x.opRiskHoursPerMonth + ' h a month for ' + x.tier3 + ' stopped payments, the Head of Loan Ops a release decision only when Operational Risk signs off a stopped payment, makers one review screen per payment, checkers nothing extra. ' +
       'Marked ' + est() + ' are estimates from the synthetic test model (seed ' + SEED + ') or a stated assumption, not a timed walk-through with real staff. Counted figures come from the event log.</p></div>';
   }
 

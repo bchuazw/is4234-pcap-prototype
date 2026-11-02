@@ -91,15 +91,23 @@
     });
     var uid = store.roleUserId('owner');
     var owned = store.riskAcceptances().filter(function (x) { return x.acceptance.ownerId === uid; });
+    /* Release decisions come first: a stopped payment Operational Risk signed off waits for the owner, and only the owner can release it. */
+    var decide = store.waitingFor('owner').filter(function (p) { return p.opRisk && p.opRisk.acceptance && p.opRisk.acceptance.ownerId === uid; }).map(function (p) {
+      var a = p.opRisk.acceptance;
+      return '<li><span class="nd-what"><strong>' + U.esc(p.id) + ' waits for your release decision.</strong> Operational Risk signed off the risk (' + U.esc(a.id) + ', ' + U.esc(a.category.toLowerCase()) + '). It would send ' + U.esc(U.fmtCompact(store.currentEval(p).consequence.externalTotal)) + '. The sign-off ends today.</span>' +
+        '<button class="btn small primary" data-act="decide" data-id="' + U.esc(p.id) + '"' + (isOwner ? '' : ' disabled title="Head of Loan Ops only"') + '>Decide</button></li>';
+    });
+    todo = decide.concat(todo);
     var needs = '<div class="card needs" id="owner-todo"><div class="card-head"><h2>' + (isOwner ? 'Needs you' : 'Needs the owner') + '</h2><span class="muted small">' + (todo.length ? todo.length + ' item' + (todo.length === 1 ? '' : 's') : 'Nothing due') + '</span></div>' +
-      (todo.length ? '<ul class="needs-list">' + todo.join('') + '</ul>' : '<p class="empty">Nothing is due. Every active workaround is reviewed and in date.</p>') +
-      '<h3 id="owner-acceptances">Risk sign-offs you own (stopped payments released anyway)</h3>' +
+      (todo.length ? '<ul class="needs-list">' + todo.join('') + '</ul>' : '<p class="empty">Nothing is due. No release decision is waiting, and every active workaround is reviewed and in date.</p>') +
+      '<h3 id="owner-acceptances">Risk sign-offs you own</h3>' +
       (owned.length ? '<ul class="needs-list">' + owned.map(function (x) {
         var a = x.acceptance;
-        return '<li><span class="nd-what"><strong>' + U.esc(a.id) + ' for ' + U.esc(a.paymentId) + '</strong>, recorded by ' + U.esc(store.userName(a.recordedById)) + ': ' + U.esc(a.category) + '. This payment only, ends ' + U.esc(U.fmtDate(a.expires)) + '. Follow-up: ' + U.say(String(a.followUp || '').replace(/\.\s*$/, '')) + '. ' +
+        var state = a.release && !a.release.declined ? 'Released by ' + store.userName(a.release.by) + ' on ' + U.fmtDate(a.release.date) + '.' : a.release && a.release.declined ? 'Not released.' : a.expires < store.today() ? 'Ended without a release.' : 'Waiting for your release decision.';
+        return '<li><span class="nd-what"><strong>' + U.esc(a.id) + ' for ' + U.esc(x.payment.id) + '</strong>, recorded by ' + U.esc(store.userName(a.recordedById)) + ': ' + U.esc(a.category) + '. ' + U.esc(state) + ' This payment only, ends ' + U.esc(U.fmtDate(a.expires)) + '. Follow-up: ' + U.say(String(a.followUp || '').replace(/\.\s*$/, '')) + '. ' +
           (a.review ? 'Internal Audit: ' + (a.review.outcome === 'finding' ? 'finding raised.' : 'no issue.') : 'Internal Audit has not reviewed it yet.') + '</span>' +
-          '<a href="#" class="btn small" data-open-payment="' + U.esc(a.paymentId) + '">Evidence</a></li>';
-      }).join('') + '</ul>' : '<p class="empty">None. When Operational Risk releases a stopped payment, it names you as the manager who owns the risk and it shows here.</p>') + '</div>';
+          '<a href="#" class="btn small" data-open-payment="' + U.esc(x.payment.id) + '">Evidence</a></li>';
+      }).join('') + '</ul>' : '<p class="empty">None. When Operational Risk signs off a stopped payment, it names you as the manager who owns the risk and it shows here.</p>') + '</div>';
 
     var tableBody = '<p class="muted small">' + (isOwner ? 'You are the owner: you can review, approve and retire entries.' : 'Only the Head of Loan Ops can review, approve or retire entries. Pick that role in the You are menu.') + '</p>' +
       '<div class="table-wrap"><table class="table reg"><thead><tr><th>ID</th><th>Workaround and why it exists</th><th>Must be set</th><th>Owner</th><th>In use for</th><th>Next review</th><th>Allowed until</th><th>Status</th><th></th></tr></thead><tbody>' +
@@ -138,7 +146,7 @@
         mining.rows.map(function (r) { return '<tr><td class="mono">' + U.esc(r.code) + '</td><td class="num">' + r.uses + '</td><td class="num">' + r.mapped + '</td><td class="num">' + (r.unmapped ? '<strong>' + r.unmapped + '</strong>' : '0') + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="empty">No overrides used yet.</p>') +
       '<p class="small">Payments released with a workaround not on the list (target zero): <strong>' + mining.releasedUnregistered + '</strong></p>');
 
-    var ownerTodo = overdue.length + proposed.length + expiring.length;
+    var ownerTodo = todo.length;
     el.innerHTML = '<div class="page-head"><h1>Workarounds ' + U.moduleChip('M1') + '</h1>' + PCAP.views.nowLine('register', role, { n: ownerTodo }) + '</div>' +
       (PCAP.views.value && isOwner ? PCAP.views.value.strip('owner') : '') + needs + tiles + table + add + mine;
 
@@ -148,6 +156,16 @@
         var id = b.getAttribute('data-id');
         var actor = store.roleUserId(st().role);
         var act = b.getAttribute('data-act');
+        if (act === 'decide') {
+          var st0 = st();
+          st0.ui = st0.ui || {};
+          st0.ui.deskSel = id;
+          st0.ui.deskView = 'queue';
+          st0.ui.deskLastRole = 'owner';
+          store.save();
+          PCAP.app.setRole('owner', 'desk');
+          return;
+        }
         if (act === 'goto') { var tb = document.getElementById('reg-table'); if (tb) tb.open = true; var row = document.getElementById('reg-' + id); if (row) { row.scrollIntoView({ block: 'center' }); row.classList.add('is-flash'); setTimeout(function () { row.classList.remove('is-flash'); }, 1600); } return; }
         if (act === 'review') { store.reviewWorkaround(id, actor); U.toast(id + ' reviewed. Owner attestation logged.', 'ok'); }
         if (act === 'approve') { store.approveWorkaround(id, actor); U.toast(id + ' approved and active.', 'ok'); }

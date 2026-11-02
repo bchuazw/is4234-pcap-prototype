@@ -11,30 +11,31 @@
   var views = PCAP.views = PCAP.views || {};
 
   var STEPS = [
-    { n: 1, role: 'maker', route: 'desk', preset: 'revlon', title: 'Maker keys the Revlon replay',
-      text: 'The New payment form opens with the Revlon replay. Under Where each part goes, only PRINCIPAL is set to Stays in the bank (the wash account). Click Review payment: Stopped (Tier 3), and PCAP says it will send USD 901.7M to 315 lenders, including USD 893.9M of principal, 115 times what the schedule expects. R-04, R-02 and R-01 fail. Submit it anyway, as happened in 2020.' },
-    { n: 2, role: 'checker', route: 'desk', title: 'Checker sends it on anyway',
-      text: 'Click Switch to Checker. The checker sees the same consequence card and the failed checks, and PCAP offers Return to maker first. To show what happened in 2020, write a note such as "Principal set to wash" and click Send to approver anyway (a note is needed only at Tier 3). The approver will not see this note until after typing their own figure (the blind re-key).' },
-    { n: 3, role: 'approver', route: 'desk', title: 'Approver re-keys blind, then reads the consequence',
-      text: 'Click Switch to Approver. The amounts are hidden. Open your source (the agent notice), type 7,820,000, pick Interest only and click Check amount. It does not match, so do it again. R-07 escalates, the consequence card appears, and the payment is Stopped (Tier 3). Send it to Operational Risk.' },
-    { n: 4, role: 'oprisk', route: 'desk', title: 'Operational Risk decides, with a reason',
-      text: 'Click Switch to Op Risk. Only the second line can release a Tier 3 payment, and only by recording a risk acceptance with a reason, the first-line risk owner and an expiry (open Release it instead to see it). Write a reason and click Reject and return to maker. (If you release it instead with Sign off and release, M5 catches it as a reconciliation break.) Every step is now in the Activity log.' },
-    { n: 5, role: 'maker', route: 'desk', title: 'Optional: the maker fixes it',
-      text: 'The returned payment waits for the maker. Click Edit and resubmit: the form opens at Where each part goes and marks FRONT and FUND as must stay in the bank. Set them, review and resubmit. Now it is Tier 2: only USD 7.8M of interest leaves and the principal stays in the bank. Check it, re-key 7,820,000 as Interest only, tick I confirm and release.' },
-    { n: 6, role: 'maker', route: 'desk', preset: 'clean', title: 'Contrast: a clean payment at Tier 1',
-      text: 'The form opens with a clean interest payment. Review, submit, check and approve. Tier 1 needs no re-key: the approver reads one sentence and presses Release (or Enter), and the next waiting payment opens by itself. The This week strip shows what PCAP added and caught.' },
-    { n: 7, role: 'owner', route: 'register', title: 'M1 register (Workarounds)',
+    { n: 1, role: 'maker', route: 'desk', preset: 'revlon', title: 'Maker keys the Revlon replay, and PCAP stops it',
+      text: 'The New payment form opens with the Revlon replay. Under Where each part goes, only PRINCIPAL is set to Stays in the bank (the wash account). Click Review payment: Stopped (Tier 3), and PCAP says it will send USD 901.7M to 315 lenders, including USD 893.9M of principal, 115 times what the schedule expects. R-04, R-02 and R-01 fail.' },
+    { n: 2, role: 'maker', route: 'desk', preset: 'revlon', title: 'It cannot be sent on: the maker refers it to Operational Risk',
+      text: 'There is no Submit button for a stopped payment, which is where 2020 went wrong. The maker can only go back and fix it, or refer it to Operational Risk with a reason of at least 15 characters. To follow the 2020 story, write that it is set up as WA-01 and click Refer to Operational Risk.' },
+    { n: 3, role: 'oprisk', route: 'desk', title: 'Operational Risk assesses it, but cannot release it',
+      text: 'Click Switch to Op Risk. The panel shows who referred it and why it was stopped. Write a reason and click Return to maker: a real error. Open Sign off the risk instead to see the other path: a risk acceptance with a reason, the Head of Loan Ops as owner, this payment only and an end of today. Signing off releases nothing.' },
+    { n: 4, role: 'maker', route: 'desk', title: 'The maker fixes it',
+      text: 'The returned payment waits for the maker. Click Edit and resubmit: the form opens at Where each part goes and marks FRONT and FUND as must stay in the bank. Set them and review: now it needs a closer look (Tier 2), only USD 7.8M of interest leaves and the principal stays in the bank. Submit it to the checker, and the checker sends it on.' },
+    { n: 5, role: 'approver', route: 'desk', title: 'The approver types their own figure, then releases',
+      text: 'Click Switch to Approver. The amounts are hidden. Open your source (the agent notice), type 7,820,000, pick Interest only and click Check amount. It matches (R-07). Tick I confirm and release: USD 7.8M of interest leaves and the principal stays in the bank.' },
+    { n: 6, role: 'maker', route: 'desk', preset: 'clean', title: 'Contrast: a routine interest payment at Tier 1',
+      text: 'The form opens with a clean interest payment. Review, submit, check and approve. Tier 1 needs no re-key: the approver reads one sentence and presses Release (or Enter), and the next waiting payment opens by itself. A scheduled principal payment would need a closer look instead.' },
+    { n: 7, role: 'owner', route: 'register', practice: true, title: 'Head of Loan Ops: the release decision after a sign-off',
+      text: 'This Go button loads the practice payments. Needs you lists a false alarm that Operational Risk signed off (the schedule still has the rate before a reset). Click Decide: PCAP shows the sign-off, checks that you are the named owner, within your limit and not part of the payment, and re-runs the rules when you click Release. Only this role can release a stopped payment.' },
+    { n: 8, role: 'owner', route: 'register', title: 'M1 register (Workarounds)',
       text: 'WA-02 review is overdue and WA-03\'s dispensation is about to expire. As Head of Loan Ops, mark WA-02 reviewed or add a new workaround.' },
-    { n: 8, role: 'oprisk', route: 'analytics', title: 'M4 behaviour analytics (Approval habits)',
-      text: 'Team-level rubber-stamp scores (R-08). Citi Approvers TPA has drifted into red: fast looks and fast approvals after Tier 2 warnings. Below, the outsourced provider card shows a check that sent on a Tier 3 payment.' },
-    { n: 9, role: 'oprisk', route: 'monitor', title: 'M5 control monitor (Daily checks)',
-      text: 'Run the same-day reconciliation as Operational Risk. Red, amber and green status for reconciliation, register reviews, dispensations, certifications, holds and the replay regression test (R-09).' },
-    { n: 10, role: 'audit', route: 'oversight', title: 'M6 obligations, Board view and audit evidence (Board and audit)',
-      text: 'As Internal Audit (third line, read only). Each obligation row maps to its control, rules and live evidence counts from the event log. Check the risk acceptance log, then download the evidence pack as JSON and CSV.' },
-    { n: 11, role: 'oprisk', route: 'synthetic', title: 'Synthetic test, report 5.8 (Test results)',
+    { n: 9, role: 'oprisk', route: 'analytics', title: 'M4 behaviour analytics (Approval habits)',
+      text: 'Team-level rubber-stamp scores (R-08). Citi Approvers TPA has drifted into red: fast looks and fast approvals after Tier 2 warnings. R-08 also counts concentrated reviewer pairs at team level, outside the score. Below, the outsourced provider card shows payments stopped when keyed and referrals.' },
+    { n: 10, role: 'oprisk', route: 'monitor', title: 'M5 control monitor (Daily checks)',
+      text: 'Run the same-day reconciliation as Operational Risk. Red, amber and green status for reconciliation, register reviews, dispensations, certifications, holds and the replay regression test (R-09). Each failed check shows how long it has been open and its owner, and one open more than 24 hours is escalated to Operational Risk.' },
+    { n: 11, role: 'audit', route: 'oversight', title: 'M6 obligations, Board view and audit evidence (Board and audit)',
+      text: 'As Internal Audit (third line, read only). Each obligation row maps to its control, rules and live evidence counts from the event log. Check the risk sign-off log, with who released each one, then download the evidence pack as JSON and CSV.' },
+    { n: 12, role: 'oprisk', route: 'synthetic', title: 'Synthetic test, report 5.8 (Test results)',
       text: 'Run 500 seeded synthetic payments with 25 injected errors through the real engine. See detection by error type and tier, false alarms, added time and the Revlon replay result.' }
   ];
-
 
   var ROOT_CAUSES = [
     ['RC1', 'Approvals evidenced authorisation, not comprehension', 'M2 states what will leave the bank. R-07 blind re-key of the amount and the payment type. M4 watches how approvals happen.', 'desk'],
@@ -57,7 +58,7 @@
   var COURSE = [
     ['Delegation of authority and segregation of duties (L3, MAS Internal Controls 2.3 and 2.4)', 'M3 gate: certification, an approval limit set by consequence, and independence from the maker and checker. Segregation guards against intent, not an error all three share, so R-07 adds a blind re-key.', 'desk', 'Payments'],
     ['Risk tolerance levels (L2 GRC technology, "what actions each level of risk will trigger")', 'Tier 1, 2 and 3 thresholds in R-01, and what each tier makes people do.', 'about', 'Tiers, below'],
-    ['Documented risk acceptance (L5 slide 41)', 'Releasing a Tier 3 hold records the reason, the first-line risk owner, the scope and an expiry. Register dispensations are acceptances with an end date.', 'desk', 'Payments (Op Risk), Workarounds'],
+    ['Documented risk acceptance (L5 slide 41)', 'Operational Risk records the reason, the first-line risk owner, the scope and an expiry for a stopped payment, but cannot release it. The Head of Loan Ops then decides on release. Register dispensations are acceptances with an end date.', 'desk', 'Payments (Op Risk, Head of Loan Ops), Workarounds'],
     ['L5 risk model: Risk = AV x EF x ARO x CD', 'WA-01 before and after PCAP. PCAP lowers control deficiency, not what is at stake.', 'register', 'Workarounds'],
     ['Compensating controls (report 3.3.3)', 'Schedule check, unscheduled principal hold, governed workaround, certified in-house approver and a same-day reconciliation, each with an owner and a test.', 'monitor', 'Daily checks'],
     ['Outsourcing accountability (L9, MAS Notice 658, Outsourcing Guidelines 3.1.1)', 'The work is outsourced, the accountability is not: override releases need a Citi approver, every register entry has a Citi owner, and the provider\'s checks are monitored.', 'analytics', 'Payments, Approval habits'],
@@ -68,8 +69,8 @@
   ];
 
   var LINES = [
-    { head: 'First line: owns the risk', items: ['Maker and checker at Wipro, the outsourced provider (tasks only, never accountable)', 'Citi approver (certified, independent, in-house)', 'Head of Loan Operations: owns M1 to M3, the register and the risk of a Tier 3 release'] },
-    { head: 'Second line: oversees and challenges', items: ['Operational Risk: Tier 3 holds and risk acceptances, M4 and M5', 'Compliance: M6 obligation map', 'Reports to the Board Risk Committee'] },
+    { head: 'First line: owns the risk', items: ['Maker and checker at Wipro, the outsourced provider (tasks only, never accountable)', 'Citi approver (certified, independent, in-house)', 'Head of Loan Operations: owns M1 to M3 and the register, and is the only one who can release a stopped payment, as a fresh decision after a risk acceptance'] },
+    { head: 'Second line: oversees and challenges', items: ['Operational Risk: assesses stopped payments and records risk acceptances, but never releases one. Owns M4 and M5', 'Compliance: M6 obligation map', 'Reports to the Board Risk Committee'] },
     { head: 'Third line: independent assurance', items: ['Internal Audit: read only, reviews every risk acceptance', 'Pulls the evidence pack and tests every payment', 'Does not run the controls it audits'] }
   ];
 
@@ -77,19 +78,19 @@
     ['In-house approvers', 'A blind re-key and a confirmation at Tier 2 and 3 only. Tier 1 keeps today\'s flow.', 'Median 41 s added at Tiers 2 and 3 in the synthetic model. The Revlon review itself took under half an hour.', 'A timed walk-through with real approvers'],
     ['Approvers and the Data Protection Officer', 'M4 monitoring of how they approve.', 'Team level, at least 3 approvers per team, three signals, never automatic discipline, staff told (PDPA purpose and notification).', 'DPO review and staff consultation before launch'],
     ['Wipro, the outsourced provider', 'Certification, monitoring and audit terms in the contract. Override releases move to a Citi approver.', 'Wipro keeps the tasks. MAS expects the bank to keep oversight of outsourced work (Guidelines on Outsourcing (Banks) 3.1.1, Notice 658).', 'Cost of the contract change'],
-    ['Operational Risk', 'Reviewing Tier 3 holds the same day.', '15 holds in 500 payments (3%) in the synthetic run, about 10 minutes each in the model.', 'Staffing and the daily cut-off'],
+    ['Operational Risk', 'Assessing stopped payments the same day, without the power to release them.', '15 holds in 500 payments (3%) in the synthetic run, about 10 minutes each in the model.', 'Staffing and the daily cut-off'],
     ['Technology and the core system', 'A hold point between the core loan system and payment release, and read access to loan schedules.', 'PCAP is an overlay. It does not change how the core system calculates, so it can run while the core is replaced.', 'Whether the core system and payment gateway can hold a payment for PCAP. This is the main readiness question'],
-    ['Board and senior management', 'Paying for the build and owning the risk acceptances.', 'About USD 894M of principal left the bank in 2020, lenders refused to return about USD 504M, and penalties for wider control failures reached USD 535.6M.', 'A build and running cost estimate'],
+    ['Board and senior management', 'Paying for the build. The Head of Loan Ops owns the risk acceptances and the release decisions.', 'About USD 894M of principal left the bank in 2020, lenders refused to return about USD 504M, and penalties for wider control failures reached USD 535.6M.', 'A build and running cost estimate'],
     ['MAS, the regulator', 'Nothing new. PCAP is evidence for rules that already exist.', 'Most obligation rows are MAS Internal Controls, Outsourcing, Notice 658 and TRM. R7 is a separate recommendation to regulators.', 'None for PCAP itself']
   ];
 
   /* Who uses PCAP every day, what it does for them and what it costs them (usability and value review, 25 Oct 2026). */
   var USERS = [
     ['Maker (Wipro)', 'Says in plain words what the payment will do before the checker sees it. Fills in the next unpaid schedule line and remembers the checker and approver. Marks any workaround leg still missing.', 'One review screen per payment, about 5 s (estimate)'],
-    ['Checker (Wipro)', 'The same sentence and failed checks the approver will see. A return reason is filled in from the failed checks.', 'Nothing extra at Tier 1 and 2. A short note to send on a hard stop'],
+    ['Checker (Wipro)', 'The same sentence and failed checks the approver will see. A return reason is filled in from the failed checks. A stopped payment never reaches them.', 'Nothing extra. A reason only to refer a payment that became stopped'],
     ['Approver (Citi)', 'Routine payments are one sentence and one button, and the next one opens by itself. A blind re-key only when something is off.', 'About 7 s at Tier 1 and 41 s at Tiers 2 and 3, 13 s on average (model estimate)'],
-    ['Operational Risk', 'Only hard stops reach them, with why each was held and who saw it. A release is one short risk acceptance form.', 'About 10 minutes per hold, 17 holds a month in the synthetic test (estimate)'],
-    ['Head of Loan Ops', 'A list of what is due on the register with the button next to it, and the risk acceptances they own.', 'A few attestations a month'],
+    ['Operational Risk', 'Only stopped payments reach them, with who referred each one, why and why PCAP stopped it. They return it or record a short risk acceptance. They cannot release it.', 'About 10 minutes per hold, 17 holds a month in the synthetic test (estimate)'],
+    ['Head of Loan Ops', 'A Needs you list with release decisions first, then what is due on the register, each with its button. The only role that can release a stopped payment, after a risk acceptance.', 'A few attestations a month, and a release decision only when Operational Risk signs off a stopped payment'],
     ['Internal Audit', 'Every payment\'s evidence collected as it happens. Every risk acceptance listed with a one-click review.', 'Reviewing each acceptance. Replaces about 8 hours of hand sampling a quarter (assumption)'],
     ['Board Risk Committee', 'KRIs with red first, and what PCAP costs and buys, from the bank\'s own data.', 'Reading one page a quarter'],
     ['Wipro service manager', 'Provider-level results for the monthly service review, with nobody named.', 'Nothing extra']
@@ -226,7 +227,7 @@
       'Added time is modelled, not measured with volunteer approvers. The app does measure real time on the consequence screen for the approvals you make.',
       'It does not check beneficiary account details, payment dates in the reconciliation (it compares amounts), or a payment made against the wrong schedule line when the amount is similar.',
       'M4 privacy is a design note (team level by default, at least 3 approvers per team, logged individual view), not a legal review under the PDPA.',
-      'The risk owner does not sign in the app. Operational Risk records the acceptance and names the Head of Loan Ops as owner in one step. A live system would have the owner confirm it as a second key.',
+      'The Head of Loan Ops makes the release decision in the app as a second key after Operational Risk\'s acceptance, but there is no login, so in the demo anyone can choose that role.',
       'The agent notice is generated from the loan schedule in the demo, so it is not a truly independent source.',
       'Open feasibility questions: whether the core system and payment gateway can hold a payment for PCAP, the cost of the Wipro contract change, a build and running cost estimate, and a timed walk-through with real approvers.',
       'The cost and value figures are estimates from the synthetic test model or a stated assumption, marked "est." on screen.'
@@ -235,7 +236,7 @@
   }
 
   function demoBody() {
-    return '<p>The guided tour on Home covers steps 1 to 5 by itself. To drive the demo by hand instead (for the video), each button switches role and opens the right screen.</p>' +
+    return '<p>The guided tour on Home covers steps 1 to 6 by itself. To drive the demo by hand instead (for the video), each button switches role and opens the right screen.</p>' +
       '<ol class="steps">' + STEPS.map(function (s) {
         return '<li><div class="step-n">' + (s.n < 10 ? '0' : '') + s.n + '</div><div class="step-body"><div class="step-title">' + esc(s.title) + '</div><p>' + esc(s.text) + '</p></div>' +
           '<button type="button" class="btn small" data-step="' + s.n + '">Go ' + U.icon('arrow') + '</button></li>';
@@ -274,7 +275,7 @@
       sec('cadence', 'Reporting cadence', 'Daily, monthly, quarterly and on request (report 5.5)', cadenceBody()) +
       sec('synthetic', 'Synthetic test notes', 'Seed, results against 5.8, why 88%, false alarms, added time', syntheticBody()) +
       sec('limits', 'Limitations', 'What the prototype does not show', limitsBody()) +
-      sec('demo', 'Manual demo path (for the video)', 'Eleven steps with a Go button each', demoBody()) +
+      sec('demo', 'Manual demo path (for the video)', 'Twelve steps with a Go button each', demoBody()) +
       sec('good', 'Good to know', 'Reset, roles, keys, theme, report codes, downloads', goodBody()) +
       sec('principle', 'Design principle: zero learning', 'Why the screens explain themselves', principleBody());
 
@@ -290,6 +291,7 @@
       if (!b) return;
       var s = STEPS.filter(function (x) { return x.n === +b.getAttribute('data-step'); })[0];
       if (!s) return;
+      if (s.practice) { PCAP.views.home.tryRole(s.role); return; }
       var st = store.st();
       if (s.preset) {
         st.ui = st.ui || {};

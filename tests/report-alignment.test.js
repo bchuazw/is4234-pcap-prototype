@@ -97,6 +97,20 @@ test('Operational Risk cannot release: it returns a real error or records a risk
   assert.deepEqual(rel.obligations, ['O1', 'O2']);
 });
 
+test('the screens offer no forward path for a stopped payment and no release button for Operational Risk', () => {
+  const desk = fs.readFileSync(path.join(ROOT, 'js', 'views', 'desk.js'), 'utf8');
+  assert.ok(!/anyway/i.test(desk), 'no "send it on anyway" path on the payment desk');
+  assert.ok(!/opr-release|opRiskRelease|Sign off and release/.test(desk), 'Operational Risk has no release button');
+  const checker = desk.slice(desk.indexOf('function checkerPanel('), desk.indexOf('function kbdHint('));
+  const stopped = checker.slice(checker.indexOf('if (m.tier === 3)'), checker.indexOf('return \'<section class="card action" aria-label="Your check">'));
+  assert.ok(stopped.length > 50 && !/data-action="check"/.test(stopped), 'the stopped checker panel can only return or refer');
+  assert.match(stopped, /data-action="return-open"/);
+  assert.match(stopped, /referBlock\(/);
+  const owner = desk.slice(desk.indexOf('function ownerPanel('), desk.indexOf('function countText('));
+  assert.match(owner, /data-action="owner-release"/, 'the release button is on the Head of Loan Ops panel only');
+  assert.ok(desk.split('data-action="owner-release"').length === 2, 'one release button for a stopped payment, nowhere else');
+});
+
 test('the Head of Loan Ops can decline, and an acceptance from yesterday cannot be used today', () => {
   const S = freshStore();
   const mk = () => S.referInstruction({ loanId: 'LN-1009', operation: 'INTEREST', valueDate: S.today(), interest: 1365000, principal: 0, overrideCode: '', fields: LEND, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1' }, 'U-MK1', REASON);

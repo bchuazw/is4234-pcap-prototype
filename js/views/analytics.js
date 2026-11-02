@@ -52,17 +52,21 @@
         rows.push({ team: actor.employer, kind: 'checked', tier: tierAt[e.paymentId] });
       } else if (e.type === 'RETURNED' && outsourced && e.data && e.data.stage === 'checker') {
         rows.push({ team: actor.employer, kind: 'returned', tier: tierAt[e.paymentId] });
+      } else if (e.type === 'HELD' && outsourced) {
+        rows.push({ team: actor.employer, kind: 'referred', tier: 3 });
       }
     });
     return E.summariseOutsourced(rows);
   }
 
   function opRiskDesk() {
-    var decided = st().payments.filter(function (p) { return p.opRisk; });
-    var released = decided.filter(function (p) { return p.opRisk.decision === 'release'; }).length;
-    var mins = E.median(decided.map(function (p) { return p.opRisk.minutesHeld; }));
-    var secs = E.median(decided.map(function (p) { return p.opRisk.decideSec; }).filter(function (x) { return x != null; }));
-    return { n: decided.length, released: released, rejected: decided.length - released, medianMinutes: mins, medianDecideSec: secs };
+    var decided = [];
+    st().payments.forEach(function (p) { (p.opRiskHistory || []).concat(p.opRisk ? [p.opRisk] : []).forEach(function (o) { decided.push(o); }); });
+    var accepted = decided.filter(function (o) { return o.decision === 'accept'; });
+    var released = accepted.filter(function (o) { return o.acceptance && o.acceptance.release && !o.acceptance.release.declined; }).length;
+    var mins = E.median(decided.map(function (o) { return o.minutesHeld; }));
+    var secs = E.median(decided.map(function (o) { return o.decideSec; }).filter(function (x) { return x != null; }));
+    return { n: decided.length, accepted: accepted.length, released: released, rejected: decided.length - accepted.length, medianMinutes: mins, medianDecideSec: secs };
   }
 
   function render(el) {
@@ -128,16 +132,15 @@
           if (s.tier === 2 && s.decision === 'approve' && s.dwellSec < E.DEFAULT_CONFIG.fastApproveSec) flags.push('fast approval');
           return '<tr><td><a href="#" data-open-payment="' + U.esc(s.paymentId) + '">' + U.esc(s.paymentId) + '</a></td><td>' + U.esc(s.team.replace('Citi Approvers ', '')) + '</td><td>' + U.tierBadge(s.tier, { noLabel: true }) + '</td><td class="num">' + U.esc(U.fmtSec(s.dwellSec)) + (flags.length ? '<div class="small warn-text">' + U.esc(flags.join(', ')) + '</div>' : '') + '</td><td>' + U.esc(s.rekey || 'not needed') + '</td><td>' + U.esc(s.decision) + '</td></tr>';
         }).join('') + '</tbody></table></div>' : '<p class="empty">No approvals made in this browser yet. Release or stop a payment on Payments and it appears here.</p>')) +
-      U.fold('Operational Risk decisions', 'Watching the watchers: how stopped payments were decided', '<div class="kv-grid one">' +
-      kv('Stopped payments decided', String(desk.n)) + kv('Released under a risk sign-off', String(desk.released)) + kv('Rejected as real errors', String(desk.rejected)) +
+      U.fold('Operational Risk decisions', 'Watching the watchers: how stopped payments were assessed', '<div class="kv-grid one">' +
+      kv('Stopped payments assessed', String(desk.n)) + kv('Returned as real errors', String(desk.rejected)) + kv('Risk signed off', String(desk.accepted)) +
+      kv('Then released by the Head of Loan Ops', String(desk.released)) +
       kv('Median minutes stopped', desk.medianMinutes == null ? 'n/a' : String(desk.medianMinutes)) + kv('Median seconds to decide (measured)', desk.medianDecideSec == null ? 'n/a' : String(Math.round(desk.medianDecideSec))) +
-      '</div><p class="muted small">Operational Risk owns this screen, so it cannot be the only check on its own releases. These figures also go to the Board, and Internal Audit reviews every risk sign-off on Board and audit.</p>') +
+      '</div><p class="muted small">Operational Risk assesses stopped payments but cannot release one, and it owns this screen, so it cannot be the only check on its own sign-offs. These figures also go to the Board, and Internal Audit reviews every risk sign-off on Board and audit.</p>') +
       '</div>' +
       '<div class="card" id="provider-card"><div class="card-head"><h2>Outsourced provider: makers and checkers</h2><span class="muted small">The service as a whole, never by person ' + U.codeTag('MAS Notice 658, Outsourcing Guidelines 3.1.1') + '</span></div>' +
-      (vendor.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Provider</th><th class="num">Payments keyed</th><th class="num">Stopped when keyed</th><th class="num">Checks done</th><th class="num">Sent on although PCAP stopped it</th><th class="num">Returned by the checker</th></tr></thead><tbody>' +
-        vendor.map(function (v) { return '<tr><td>' + U.esc(v.team) + '</td><td class="num">' + v.keyed + '</td><td class="num">' + v.keyedTier3 + '</td><td class="num">' + v.checked + '</td><td class="num">' + (v.sentOnTier3 ? '<strong class="warn-text">' + v.sentOnTier3 + '</strong>' : '0') + '</td><td class="num">' + v.returned + '</td></tr>'; }).join('') +
-        '</tbody></table></div>' : '<p class="empty">No outsourced keying or checks yet.</p>') +
-      '<p class="muted small">The work is outsourced, the accountability is not. In 2020 the outsourced checker passed the payment on. Here a check that sends on a payment PCAP has already stopped is counted for the provider as a whole and goes into the monthly provider review. The bank watches the service and the provider manages its own staff, so nothing here names a person. In this demo one maker and one checker do all the work.</p></div>' +
+      (vendor.length ? providerTable(vendor) : '<p class="empty">No outsourced keying or checks yet.</p>') +
+      '<p class="muted small">The work is outsourced, the accountability is not. In 2020 the outsourced checker passed the payment on. Here a stopped payment cannot be passed on: the provider\'s staff return it or refer it to Operational Risk, and both are counted for the provider as a whole in the monthly provider review. The bank watches the service and the provider manages its own staff, so nothing here names a person. In this demo one maker and one checker do most of the work.</p></div>' +
       '<div class="card"><div class="card-head"><h2>Named view</h2><span class="muted small">Restricted: only payments that needed a closer look or were stopped</span></div>' +
       (individualOpen && isOpRisk ? individualTable(cur) : '<p>Names are hidden by default. ' + (isOpRisk ? 'Open them only for a control reason. Your reason is written to the activity log.' : 'Only Operational Risk can open this view.') + '</p>' +
         '<button class="btn" data-act="individual"' + (isOpRisk ? '' : ' disabled') + '>' + U.icon('eye') + ' Open the named view (logged)</button>') +
@@ -198,15 +201,18 @@
       '<div class="banner privacy">' + U.icon('shield') + '<span><strong>Provider level only.</strong> You see your own team\'s results as a whole. You do not see Citi\'s approver analytics, and nothing here names a person. Citi monitors the service, and Wipro manages its own staff.</span></div>' +
       '<div class="card"><div class="card-head"><h2>What PCAP asks of your staff</h2></div><ul class="lines-list">' +
       '<li>Makers: one review screen before each payment is submitted. PCAP fills in the next unpaid line of the loan schedule and remembers the checker and approver.</li>' +
-      '<li>Checkers: nothing extra on most payments. When PCAP stops a payment, it asks them to return it, or to write why they are sending it on.</li>' +
+      '<li>Checkers: nothing extra on most payments. A payment PCAP stops never reaches them, and one that becomes stopped can only be returned or referred to Operational Risk with a reason.</li>' +
       '<li>What your team gets back: a plain sentence that says what each payment will really do before anyone signs, and a record that shows the check was done.</li></ul></div>';
+  }
+  function providerTable(vendor) {
+    return '<div class="table-wrap"><table class="table"><thead><tr><th>Provider</th><th class="num">Payments keyed</th><th class="num">Stopped when keyed</th><th class="num">Checks done</th><th class="num">Returned by the checker</th><th class="num">Stopped payments referred to Op Risk</th></tr></thead><tbody>' +
+      vendor.map(function (v) { return '<tr><td>' + U.esc(v.team) + '</td><td class="num">' + v.keyed + '</td><td class="num">' + v.keyedTier3 + '</td><td class="num">' + v.checked + '</td><td class="num">' + v.returned + '</td><td class="num">' + v.referred + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
   }
   function providerCard(vendor) {
     return '<div class="card" id="provider-card"><div class="card-head"><h2>Outsourced provider: makers and checkers</h2><span class="muted small">Monitoring the outsourced service at provider level</span></div>' +
-      (vendor.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Provider</th><th class="num">Payments keyed</th><th class="num">Stopped when keyed</th><th class="num">Checks done</th><th class="num">Sent on although PCAP stopped it</th><th class="num">Returned by the checker</th></tr></thead><tbody>' +
-        vendor.map(function (v) { return '<tr><td>' + U.esc(v.team) + '</td><td class="num">' + v.keyed + '</td><td class="num">' + v.keyedTier3 + '</td><td class="num">' + v.checked + '</td><td class="num">' + (v.sentOnTier3 ? '<strong class="warn-text">' + v.sentOnTier3 + '</strong>' : '0') + '</td><td class="num">' + v.returned + '</td></tr>'; }).join('') +
-        '</tbody></table></div>' : '<p class="empty">No outsourced keying or checks yet.</p>') +
-      '<p class="muted small">All time in this browser. A check that sends on a payment PCAP has already stopped is counted for the provider as a whole and goes into the monthly provider review.</p></div>';
+      (vendor.length ? providerTable(vendor) : '<p class="empty">No outsourced keying or checks yet.</p>') +
+      '<p class="muted small">All time in this browser. A stopped payment cannot be passed on, so your staff return it or refer it to Operational Risk. Both are counted for the provider as a whole in the monthly provider review.</p></div>';
   }
 
   function tile(label, value, sub, rag) { return PCAP.views.register.tile(label, value, sub, rag); }
