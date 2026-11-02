@@ -81,6 +81,10 @@
     M6: { id: 'M6', name: 'Obligation Map and Oversight Dashboard', short: 'Obligation Map', group: 'Govern' }
   };
 
+  /* Report 5.4: changing a rule needs an owner, independent approval and a versioned record.
+     The version goes into every evidence pack (report 5.5). */
+  var RULES_VERSION = 'v2, 2 Nov 2026';
+
   /* Table 6 of the report: rule IDs and names follow the report. */
   var RULES = {
     'R-01': { id: 'R-01', name: 'Variance', module: 'M2', obligations: ['O2'], screen: 'Payment desk',
@@ -1691,6 +1695,7 @@
     DEFAULT_CONFIG: DEFAULT_CONFIG,
     MODULES: MODULES,
     RULES: RULES,
+    RULES_VERSION: RULES_VERSION,
     RULE_ORDER: RULE_ORDER,
     TIERS: TIERS,
     REPLAY: REPLAY,

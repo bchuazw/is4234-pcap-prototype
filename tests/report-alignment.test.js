@@ -285,3 +285,10 @@ test('no native confirm, prompt or alert is left anywhere: every question uses t
   assert.match(dlg, /'Enter'/, 'Enter confirms');
   assert.match(dlg, /showModal/, 'focus moves into a modal dialog');
 });
+
+test('the evidence pack names the rule version (report 5.5)', () => {
+  assert.equal(typeof E.RULES_VERSION, 'string');
+  assert.ok(E.RULES_VERSION.length > 0);
+  const ov = fs.readFileSync(path.join(ROOT, 'js', 'views', 'oversight.js'), 'utf8');
+  assert.match(ov, /rule_version: E\.RULES_VERSION/);
+});

@@ -113,6 +113,7 @@
       notice: DATA.notice,
       generated_at: new Date().toISOString(),
       business_date: s.businessDate,
+      rule_version: E.RULES_VERSION,
       generated_by: store.userName(store.roleUserId(s.role)),
       obligations: obligationRows().map(function (r) { return { id: r.o.id, source: r.o.source, topic: r.o.topic, risk: r.o.risk, control: r.o.control, modules: r.o.modules, rules: r.o.rules, evidence_it_works: r.o.evidence, live_evidence: r.live.text, status: r.live.rag }; }),
       rules: Object.keys(E.RULES).map(function (k) { var r = E.RULES[k]; return { id: r.id, name: r.name, module: r.module, logic: r.logic, action: r.action, obligations: r.obligations }; }),
