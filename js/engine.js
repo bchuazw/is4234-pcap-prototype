@@ -67,6 +67,7 @@
     reviewRedDays: 30,        // R-09: register review overdue by more than 30 days is red
     regressionMaxDays: 31,    // R-09: replay regression test must run at least monthly
     reconCutoff: '18:00',     // R-09: same-day reconciliation cut-off
+    escalateHours: 24,        // R-09: a failed control still open after 24 hours is escalated to Operational Risk (report 5.5)
     m4MinTeam: 3,             // R-08: a team score is shown only for teams of at least 3 approvers (PDPA, no one singled out)
     reasonMinChars: 15        // Operational Risk decisions need a written reason of at least 15 characters
   };
@@ -108,7 +109,7 @@
       action: 'Amber at 25 and red at 50, or any concentrated pair: second-line sampling in the monthly report. Never blocks a payment. Team level by default, names only with a logged reason.' },
     'R-09': { id: 'R-09', name: 'Control health', module: 'M5', obligations: ['O7', 'O6'], screen: 'M5 control monitor',
       logic: 'Checks that compensating controls ran: same-day independent reconciliation, register reviews and dispensations in date, approver certifications current, hard-stop queue cleared, replay regression test passing.',
-      action: 'Red or amber status alerts the control owner and feeds the M6 KRIs.' }
+      action: 'A failed or overdue control goes to its owner, and is escalated to Operational Risk if it is still open after 24 hours. Red or amber status feeds the M6 KRIs.' }
   };
 
   /* Order in which the pre-release check shows rules: M1 register, then M3 gate, then M2 engine. */
@@ -932,7 +933,15 @@
     });
   }
 
-  /* input: { businessDate, nowTime 'HH:MM', register, users, payments, reconRuns, regressionRuns, approvals } */
+  /* Hours from 'YYYY-MM-DD HH:MM' to 'YYYY-MM-DD HH:MM'. */
+  function hoursBetween(from, to) {
+    function t(x) { var p = String(x).split(' '); var hm = (p[1] || '00:00').split(':'); return parseISO(p[0]) + (+hm[0]) * 3600000 + (+hm[1]) * 60000; }
+    return Math.round((t(to) - t(from)) / 36000) / 100;
+  }
+
+  /* input: { businessDate, nowTime 'HH:MM', register, users, payments, reconRuns, regressionRuns, approvals }
+     Each control has rag and message. A control that has failed or is overdue also has failed: true, since (when it
+     started failing, 'YYYY-MM-DD HH:MM'), openHours and escalated (open more than 24 hours, report 5.5). */
   function controlHealth(input, cfgIn) {
     var cfg = config(cfgIn);
     var bd = input.businessDate;
@@ -947,14 +956,14 @@
       var last = runs[runs.length - 1];
       var late = now > cfg.reconCutoff;
       var lastRelease = rel.reduce(function (m, p) { return p.releasedTime > m ? p.releasedTime : m; }, '00:00');
-      var rag, msg;
+      var rag, msg, since = null;
       if (!rel.length) { rag = 'green'; msg = 'Nothing released today yet.'; }
-      else if (!last) { rag = late ? 'red' : 'amber'; msg = late ? 'Not run by the ' + cfg.reconCutoff + ' cut-off.' : rel.length + ' payment' + (rel.length === 1 ? '' : 's') + ' released today. Not reconciled yet (due by ' + cfg.reconCutoff + ').'; }
-      else if (!last.independent) { rag = 'red'; msg = 'Last run by someone involved in today\'s payments. It must be independent of the maker.'; }
-      else if (last.breaks > 0) { rag = 'red'; msg = last.breaks + ' break' + (last.breaks === 1 ? '' : 's') + ' found at ' + last.time + ', total ' + fmtUSD(last.breakTotal) + '. Investigate and escalate.'; }
-      else if (last.time < lastRelease) { rag = late ? 'red' : 'amber'; msg = 'Payments released since the last run at ' + last.time + '. Run again.'; }
+      else if (!last) { rag = late ? 'red' : 'amber'; msg = late ? 'Not run by the ' + cfg.reconCutoff + ' cut-off.' : rel.length + ' payment' + (rel.length === 1 ? '' : 's') + ' released today. Not reconciled yet (due by ' + cfg.reconCutoff + ').'; if (late) since = bd + ' ' + cfg.reconCutoff; }
+      else if (!last.independent) { rag = 'red'; msg = 'Last run by someone involved in today\'s payments. It must be independent of the maker.'; since = bd + ' ' + last.time; }
+      else if (last.breaks > 0) { rag = 'red'; msg = last.breaks + ' break' + (last.breaks === 1 ? '' : 's') + ' found at ' + last.time + ', total ' + fmtUSD(last.breakTotal) + '. Investigate and escalate.'; since = bd + ' ' + last.time; }
+      else if (last.time < lastRelease) { rag = late ? 'red' : 'amber'; msg = 'Payments released since the last run at ' + last.time + '. Run again.'; if (late) since = bd + ' ' + cfg.reconCutoff; }
       else { rag = 'green'; msg = 'Reconciled ' + last.rows + ' payment' + (last.rows === 1 ? '' : 's') + ' at ' + last.time + '. No breaks.'; }
-      out.push({ id: 'CC-01', rag: rag, message: msg });
+      out.push({ id: 'CC-01', rag: rag, message: msg, failed: !!since, since: since });
     })();
 
     /* CC-02 register reviews on time */
@@ -962,13 +971,15 @@
       var active = (input.register || []).filter(function (r) { return r.status === 'Active'; });
       var overdue = active.filter(function (r) { return r.nextReview && r.nextReview < bd; })
         .map(function (r) { return { id: r.id, days: daysBetween(r.nextReview, bd) }; });
-      var rag = 'green', msg = 'All ' + active.length + ' active entries reviewed on time.';
+      var rag = 'green', msg = 'All ' + active.length + ' active entries reviewed on time.', since = null;
       if (overdue.length) {
         var worst = Math.max.apply(null, overdue.map(function (o) { return o.days; }));
         rag = worst > cfg.reviewRedDays ? 'red' : 'amber';
         msg = overdue.map(function (o) { return o.id + ' review overdue by ' + o.days + ' day' + (o.days === 1 ? '' : 's'); }).join('. ') + '.';
+        /* Overdue counts as failed (R-09): open since the earliest missed review date. */
+        since = addDays(bd, -worst) + ' 00:00';
       }
-      out.push({ id: 'CC-02', rag: rag, message: msg, overdue: overdue });
+      out.push({ id: 'CC-02', rag: rag, message: msg, overdue: overdue, failed: !!since, since: since });
     })();
 
     /* CC-03 dispensations in date */
@@ -977,9 +988,13 @@
       var expired = active.filter(function (r) { return r.dispensationUntil < bd; });
       var soon = active.filter(function (r) { return r.dispensationUntil >= bd && daysBetween(bd, r.dispensationUntil) <= cfg.expiringDays; });
       var rag = 'green', msg = 'All ' + active.length + ' dispensations in date.';
-      if (expired.length) { rag = 'red'; msg = expired.map(function (r) { return r.id + ' dispensation expired on ' + fmtDate(r.dispensationUntil); }).join('. ') + '.'; }
+      var since3 = null;
+      if (expired.length) {
+        rag = 'red'; msg = expired.map(function (r) { return r.id + ' dispensation expired on ' + fmtDate(r.dispensationUntil); }).join('. ') + '.';
+        since3 = expired.map(function (r) { return r.dispensationUntil; }).sort()[0] + ' 00:00';
+      }
       else if (soon.length) { rag = 'amber'; msg = soon.map(function (r) { return r.id + ' dispensation expires in ' + daysBetween(bd, r.dispensationUntil) + ' days'; }).join('. ') + '.'; }
-      out.push({ id: 'CC-03', rag: rag, message: msg, expired: expired.map(function (r) { return r.id; }), expiring: soon.map(function (r) { return r.id; }) });
+      out.push({ id: 'CC-03', rag: rag, message: msg, expired: expired.map(function (r) { return r.id; }), expiring: soon.map(function (r) { return r.id; }), failed: !!since3, since: since3 });
     })();
 
     /* CC-04 approver certifications current */
@@ -994,13 +1009,16 @@
         });
       });
       var badApprovals = (input.approvals || []).filter(function (a) { return a.override && !a.certCurrent; });
-      var rag = 'green', msg = 'All approver certifications current.';
-      if (badApprovals.length) { rag = 'red'; msg = badApprovals.length + ' override approval' + (badApprovals.length === 1 ? '' : 's') + ' by an approver without a current certification. The gate failed.'; }
+      var rag = 'green', msg = 'All approver certifications current.', since4 = null;
+      if (badApprovals.length) {
+        rag = 'red'; msg = badApprovals.length + ' override approval' + (badApprovals.length === 1 ? '' : 's') + ' by an approver without a current certification. The gate failed.';
+        since4 = badApprovals.map(function (a) { return (a.releasedDate || bd) + ' ' + (a.releasedTime || '00:00'); }).sort()[0];
+      }
       else if (lapsed.length || soon.length) {
         rag = 'amber';
         msg = (lapsed.length ? 'Lapsed: ' + lapsed.join(', ') + '. The M3 gate blocks their override approvals. ' : '') + (soon.length ? 'Expiring: ' + soon.join(', ') + '.' : '');
       }
-      out.push({ id: 'CC-04', rag: rag, message: msg.trim(), lapsed: lapsed.length, expiring: soon.length });
+      out.push({ id: 'CC-04', rag: rag, message: msg.trim(), lapsed: lapsed.length, expiring: soon.length, failed: !!since4, since: since4 });
     })();
 
     /* CC-05 hard-stop queue cleared the same day */
@@ -1009,28 +1027,39 @@
       var held = payments.filter(function (p) { return p.status === 'HELD' || p.status === 'ACCEPTED'; });
       var old = held.filter(function (p) { return p.heldDate && p.heldDate < bd; });
       var rag = 'green', msg = 'No Tier 3 holds waiting.';
-      if (old.length) { rag = 'red'; msg = old.length + ' Tier 3 hold' + (old.length === 1 ? '' : 's') + ' older than today.'; }
+      var since5 = null;
+      if (old.length) {
+        rag = 'red'; msg = old.length + ' Tier 3 hold' + (old.length === 1 ? '' : 's') + ' older than today.';
+        /* A hold not cleared by the end of its own day has failed since the next morning. */
+        since5 = addDays(old.map(function (p) { return p.heldDate; }).sort()[0], 1) + ' 00:00';
+      }
       else if (held.length) { rag = 'amber'; msg = held.length + ' Tier 3 hold' + (held.length === 1 ? '' : 's') + ' waiting for a decision today.'; }
-      out.push({ id: 'CC-05', rag: rag, message: msg });
+      out.push({ id: 'CC-05', rag: rag, message: msg, failed: !!since5, since: since5 });
     })();
 
     /* CC-06 Revlon replay regression test */
     (function () {
       var runs = input.regressionRuns || [];
       var last = runs[runs.length - 1];
-      var rag, msg;
+      var rag, msg, since6 = null;
       if (!last) { rag = 'amber'; msg = 'Never run.'; }
-      else if (!last.pass) { rag = 'red'; msg = 'Last run on ' + fmtDate(last.date) + ' failed: ' + (last.detail || 'replay not stopped at Tier 3') + '.'; }
-      else if (daysBetween(last.date, bd) > cfg.regressionMaxDays) { rag = 'amber'; msg = 'Overdue. Last passed on ' + fmtDate(last.date) + '.'; }
+      else if (!last.pass) { rag = 'red'; msg = 'Last run on ' + fmtDate(last.date) + ' failed: ' + (last.detail || 'replay not stopped at Tier 3') + '.'; since6 = last.date + ' 00:00'; }
+      else if (daysBetween(last.date, bd) > cfg.regressionMaxDays) { rag = 'amber'; msg = 'Overdue. Last passed on ' + fmtDate(last.date) + '.'; since6 = addDays(last.date, cfg.regressionMaxDays + 1) + ' 00:00'; }
       else {
         var ago = daysBetween(last.date, bd);
         rag = 'green';
         msg = ago === 0 ? 'Passed today.' : 'Passed on ' + fmtDate(last.date) + ' (' + ago + ' day' + (ago === 1 ? '' : 's') + ' ago).';
       }
-      out.push({ id: 'CC-06', rag: rag, message: msg });
+      out.push({ id: 'CC-06', rag: rag, message: msg, failed: !!since6, since: since6 });
     })();
 
-    return { controls: out, overall: ragWorst(out.map(function (x) { return x.rag; })) };
+    /* Report 5.5: a failed control goes to its owner, and to Operational Risk if it is still open after 24 hours. */
+    var nowAt = bd + ' ' + now;
+    out.forEach(function (c) {
+      c.openHours = c.failed ? Math.max(0, hoursBetween(c.since, nowAt)) : null;
+      c.escalated = !!c.failed && c.openHours > cfg.escalateHours;
+    });
+    return { controls: out, overall: ragWorst(out.map(function (x) { return x.rag; })), escalated: out.filter(function (c) { return c.escalated; }).map(function (c) { return c.id; }) };
   }
 
   /* The replay as a regression test (used by M5 CC-06, the synthetic test and the unit tests). The payment is stopped

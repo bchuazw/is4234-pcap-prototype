@@ -674,6 +674,13 @@
       var open = riskAcceptances().filter(function (x) { return !x.acceptance.review; }).length;
       if (open) items.push({ route: 'oversight', count: open, text: open + ' risk sign-off' + (open === 1 ? '' : 's') + ' to review' });
     }
+    if (role === 'oprisk') {
+      /* Failed checks owned by others and open more than 24 hours come to Operational Risk. */
+      var own = {};
+      (S.state.ctx.controls || []).forEach(function (c) { if (c.ownerId === uid) own[c.id] = 1; });
+      var esc = controlHealth().controls.filter(function (c) { return c.escalated && !own[c.id]; }).length;
+      if (esc) items.push({ route: 'monitor', count: esc, text: esc + ' failed check' + (esc === 1 ? '' : 's') + ' escalated to you' });
+    }
     if (uid && (role === 'oprisk' || role === 'owner')) {
       var mine = {};
       (S.state.ctx.controls || []).forEach(function (c) { if (c.ownerId === uid) mine[c.id] = 1; });
@@ -763,11 +770,40 @@
       businessDate: today(), nowTime: nowHHMM(), register: S.state.ctx.register, users: S.state.ctx.users,
       payments: healthPayments(), reconRuns: S.state.reconRuns, regressionRuns: S.state.regressionRuns,
       approvals: S.state.payments.filter(function (p) { return p.status === 'RELEASED' && p.overrideUsedAtRelease && !p.viaAcceptance; })
-        .map(function (p) { return { override: true, certCurrent: p.certCurrentAtRelease !== false }; })
+        .map(function (p) { return { override: true, certCurrent: p.certCurrentAtRelease !== false, releasedDate: p.releasedDate, releasedTime: p.releasedTime }; })
     };
   }
 
-  function controlHealth() { return E.controlHealth(healthInput()); }
+  /* Report 5.5: a failed compensating control goes to its owner, and is escalated to Operational Risk if it is still
+     open after 24 hours. PCAP logs each escalation once, as its own step (not as the person's own data). */
+  function stamp(since) { var p = String(since).split(' '); return E.fmtDate(p[0]) + (p[1] && p[1] !== '00:00' ? ' ' + p[1] : ''); }
+  function escalate(h) {
+    var esc = S.state.escalations = S.state.escalations || {};
+    var defs = S.state.ctx.controls || [];
+    var fresh = h.controls.filter(function (c) { return c.escalated && !esc[c.id + '@' + c.since]; });
+    if (!fresh.length) return;
+    var auto = !hasUserData();
+    var was = S.seeding;
+    S.seeding = true;
+    try {
+      fresh.forEach(function (c) {
+        var d = E.byId(defs, c.id) || {};
+        esc[c.id + '@' + c.since] = nowISO();
+        logEvent({
+          type: 'CONTROL_ESCALATED', module: 'M5', rule: 'R-09', obligations: ['O7'], actorId: 'PCAP', result: 'fire',
+          detail: c.id + ' (' + (d.name || 'control') + ') has been failing for more than ' + E.DEFAULT_CONFIG.escalateHours + ' hours, since ' + stamp(c.since) + '. Sent to its owner, ' + userName(d.ownerId) + ', and escalated to Operational Risk.',
+          data: { control: c.id, since: c.since, ownerId: d.ownerId || null, openHours: c.openHours }
+        });
+      });
+    } finally { S.seeding = was; }
+    if (auto) S.state.autoUpTo = S.state.events.length;
+    save();
+  }
+  function controlHealth() {
+    var h = E.controlHealth(healthInput());
+    escalate(h);
+    return h;
+  }
 
   /* Internal Audit (third line) reviews controls but does not run them, or it would be auditing its own work.
      The Board and the outsourced provider's service manager only read results. */
@@ -965,6 +1001,9 @@
     logEvent({ type: 'REGISTER_REVIEWED', module: 'M1', obligations: ['O4', 'O5'], actorId: 'U-HLO', result: 'pass', detail: 'Owner attestation: WA-01 reviewed by Dana F. Next review ' + E.fmtDate(E.addDays(bd, 88)) + '.', data: { entry: 'WA-01' } });
     setClock(E.addDays(bd, -40), '16:20');
     logEvent({ type: 'REGISTER_REVIEWED', module: 'M1', obligations: ['O4', 'O5'], actorId: 'U-HLO', result: 'pass', detail: 'Owner attestation: WA-03 reviewed by Dana F. Next review ' + E.fmtDate(E.addDays(bd, 50)) + '.', data: { entry: 'WA-03' } });
+    /* WA-02's review was missed 23 days ago. A day later the failed check (CC-02) passed 24 hours and was escalated. */
+    setClock(E.addDays(bd, -22), '09:00');
+    controlHealth();
     setClock(E.addDays(bd, -12), '09:30');
     var rr = E.replayCheck(freshReplayContext(), { makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1' });
     S.state.regressionRuns.push({ date: E.addDays(bd, -12), at: nowISO(), by: 'U-TEC', pass: rr.pass, detail: rr.detail, tier: rr.tier, hits: rr.hits });

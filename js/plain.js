@@ -108,6 +108,7 @@
           : 'Shows whether approver teams read before they release or just click through. No team needs a follow-up this week.';
         return 'Shows whether approver teams read before they release or just click through. Team level only, so nobody is named.';
       case 'monitor':
+        if (role === 'oprisk' && c.esc) return 'Shows whether the safety checks around payments ran today. ' + plural(+c.esc, 'failed check was', 'failed checks were') + ' escalated to you after 24 hours: follow up with the owner on its card.' + (n ? ' ' + plural(n, 'of your own checks is', 'of your own checks are') + ' not green.' : '');
         if (role === 'oprisk') return n
           ? 'Shows whether the safety checks around payments ran today. ' + plural(n, 'of your checks is', 'of your checks are') + ' not green: run or fix it with the button on its card.'
           : 'Shows whether the safety checks around payments ran today. All of your checks are green.';

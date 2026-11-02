@@ -9,6 +9,23 @@
 
   function st() { return store.st(); }
 
+  /* How long a failed check has been open, in plain words. */
+  function openFor(hours) {
+    if (hours == null) return 'an unknown time';
+    if (hours < 1) return 'less than an hour';
+    if (hours < 48) { var h = Math.floor(hours); return h + ' hour' + (h === 1 ? '' : 's'); }
+    return Math.floor(hours / 24) + ' days';
+  }
+  function sinceText(since) { var p = String(since || '').split(' '); return U.fmtDate(p[0]) + (p[1] && p[1] !== '00:00' ? ' ' + p[1] : ''); }
+
+  /* Report 5.5: a failed check goes to its owner, and is escalated to Operational Risk if it is still open after 24 hours. */
+  function openLine(h, ownerName) {
+    if (!h.failed) return '';
+    var limit = E.DEFAULT_CONFIG.escalateHours;
+    return '<div class="cc-open' + (h.escalated ? ' is-esc' : '') + '">' + U.icon(h.escalated ? 'warn' : 'clock') + '<span>Failing for ' + U.esc(openFor(h.openHours)) + ', since ' + U.esc(sinceText(h.since)) + '. Sent to ' + U.esc(ownerName) + '. ' +
+      (h.escalated ? '<strong>Escalated to Operational Risk</strong> (open more than ' + limit + ' hours).' : 'Goes to Operational Risk if still open after ' + limit + ' hours.') + '</span></div>';
+  }
+
   function render(el) {
     var health = store.controlHealth();
     var byId = {};
@@ -28,15 +45,18 @@
       'CC-05': '<button class="btn small" data-act="queue">Open stopped payments</button>',
       'CC-06': '<button class="btn small primary" data-act="regression"' + (isAudit ? ' disabled title="Read only: Operational Risk runs this control"' : '') + '>Re-run the 2020 payment test</button>'
     };
-    var overallText = { green: 'Every safety check ran and passed.', amber: 'Some checks need attention. Their owners can see it.', red: 'At least one check failed or did not run. Its owner needs to act, and Operational Risk follows it up.' };
+    var overallText = { green: 'Every safety check ran and passed.', amber: 'Some checks need attention. Their owners can see it, and a failure open more than a day goes to Operational Risk.', red: 'At least one check failed or did not run. Its owner needs to act, and Operational Risk follows it up.' };
 
     var cards = '<div class="cc-grid">' + defs.map(function (d) {
       var h = byId[d.id] || { rag: 'green', message: '' };
       return '<div class="cc-card rag-border-' + h.rag + '"><div class="cc-head"><span class="cc-id code-tag">' + U.esc(d.id) + '</span>' + U.ragChip(h.rag) + '</div>' +
         '<div class="cc-name">' + U.esc(d.name) + '</div>' +
-        '<div class="cc-msg">' + U.say(h.message) + '</div>' +
+        '<div class="cc-msg">' + U.say(h.message) + '</div>' + openLine(h, store.userName(d.ownerId)) +
         '<div class="cc-foot"><span class="small muted">Owner ' + U.esc(store.userName(d.ownerId)) + ', ' + U.esc(d.frequency.charAt(0).toLowerCase() + d.frequency.slice(1)) + '</span>' + (actions[d.id] || '') + '</div></div>';
     }).join('') + '</div>';
+    var escList = defs.filter(function (d) { return (byId[d.id] || {}).escalated; });
+    var escBanner = escList.length ? '<div class="banner warn esc-banner">' + U.icon('warn') + '<span><strong>' + escList.length + ' failed check' + (escList.length === 1 ? ' has' : 's have') + ' been open more than ' + E.DEFAULT_CONFIG.escalateHours + ' hours, so ' + (escList.length === 1 ? 'it is' : 'they are') + ' escalated to Operational Risk:</strong> ' +
+      escList.map(function (d) { return U.esc(d.name.charAt(0).toLowerCase() + d.name.slice(1)) + ' (owner ' + U.esc(store.userName(d.ownerId)) + ', open ' + U.esc(openFor(byId[d.id].openHours)) + ')'; }).join(', ') + '.</span></div>' : '';
 
     var rec = E.reconcile(pays.map(function (p) { return { id: p.id, loanId: p.loanId, status: p.status, releasedDate: p.releasedDate, releasedExternal: p.releasedExternal, expectedAtRelease: p.expectedAtRelease, releasedBy: p.releasedBy }; }), today);
     var runs = st().reconRuns.slice(-5).reverse();
@@ -69,9 +89,10 @@
       reg.map(function (r) { return '<tr><td>' + U.esc(U.fmtDate(r.date)) + '</td><td>' + U.esc(store.userName(r.by)) + '</td><td>' + (r.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</td><td class="small">' + U.esc(r.detail) + (r.hits ? '<span class="code-tag">. Rules: ' + U.esc(r.hits.join(', ')) + '</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div>');
 
     var mineNotGreen = defs.filter(function (d) { return d.ownerId === actor && (byId[d.id] || {}).rag !== 'green'; }).length;
-    el.innerHTML = '<div class="page-head"><h1>Daily checks ' + U.moduleChip('M5') + '</h1>' + PCAP.views.nowLine('monitor', role, { n: mineNotGreen }) + '</div>' +
+    var escToOpRisk = defs.filter(function (d) { return d.ownerId !== actor && (byId[d.id] || {}).escalated; }).length;
+    el.innerHTML = '<div class="page-head"><h1>Daily checks ' + U.moduleChip('M5') + '</h1>' + PCAP.views.nowLine('monitor', role, { n: mineNotGreen, esc: role === 'oprisk' ? escToOpRisk : 0 }) + '</div>' +
       '<div class="overall rag-border-' + health.overall + '"><div><strong>All checks together</strong> ' + U.ragChip(health.overall, health.overall === 'green' ? 'Green' : health.overall === 'amber' ? 'Amber' : 'Red') + ' ' + U.ruleChip('R-09') + '</div><p>' + U.esc(overallText[health.overall]) + '</p></div>' +
-      cards + recon + certs + tests;
+      escBanner + cards + recon + certs + tests;
 
     el.onclick = function (e) {
       var b = e.target.closest('[data-act]');

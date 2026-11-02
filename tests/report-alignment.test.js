@@ -166,6 +166,48 @@ test('R-08 concentrated reviewer pairs: 60% of one maker\'s payments in a team, 
   assert.throws(() => S.logIndividualView('U-AP1', 'Reviewing the pairs before coaching.'), /Only Operational Risk/);
 });
 
+test('24-hour escalation: a failed control shows how long it has been open, and over 24 hours it is escalated to Operational Risk', () => {
+  const DATA = require('../data/seed-data.js');
+  const BD = '2026-10-24';
+  const c = E.buildDemoContext(DATA, BD);
+  const base = { businessDate: BD, nowTime: '11:00', register: c.register, users: c.users, payments: [], reconRuns: [], regressionRuns: [{ date: E.addDays(BD, -3), pass: true }] };
+  const h = E.controlHealth(base);
+  const cc02 = h.controls.find((x) => x.id === 'CC-02');
+  assert.equal(cc02.failed, true, 'a review overdue for 23 days has failed (R-09: failed or overdue)');
+  assert.equal(cc02.since, E.addDays(BD, -23) + ' 00:00');
+  assert.ok(cc02.openHours > 24 * 23);
+  assert.equal(cc02.escalated, true);
+  assert.deepEqual(h.escalated, ['CC-02']);
+  assert.equal(h.controls.find((x) => x.id === 'CC-03').failed, false, 'a dispensation that ends soon has not failed yet');
+  /* A failure younger than 24 hours goes to its owner only. */
+  const failedToday = E.controlHealth(Object.assign({}, base, { regressionRuns: [{ date: BD, pass: false, detail: 'Tier 1 instead of 3' }] })).controls.find((x) => x.id === 'CC-06');
+  assert.equal(failedToday.failed, true);
+  assert.equal(failedToday.openHours, 11);
+  assert.equal(failedToday.escalated, false);
+  const late = E.controlHealth(Object.assign({}, base, { nowTime: '18:30', payments: [{ id: 'P1', status: 'RELEASED', releasedDate: BD, releasedTime: '10:00', releasedExternal: 1, expectedAtRelease: 1 }] })).controls.find((x) => x.id === 'CC-01');
+  assert.equal(late.rag, 'red');
+  assert.equal(late.since, BD + ' 18:00');
+  assert.equal(late.openHours, 0.5);
+  assert.equal(late.escalated, false);
+  const yesterday = E.controlHealth(Object.assign({}, base, { payments: [{ id: 'P2', status: 'HELD', heldDate: E.addDays(BD, -2) }] })).controls.find((x) => x.id === 'CC-05');
+  assert.equal(yesterday.escalated, true, 'a stopped payment left undecided for more than a day escalates');
+  assert.match(E.RULES['R-09'].action, /escalated to Operational Risk if it is still open after 24 hours/);
+
+  /* The demo shows one escalated failure, logged once, as the app's own step. */
+  const S = freshStore();
+  const live = S.controlHealth();
+  assert.deepEqual(live.escalated, ['CC-02']);
+  const evs = () => S.st().events.filter((e) => e.type === 'CONTROL_ESCALATED');
+  assert.equal(evs().length, 1);
+  assert.equal(evs()[0].module, 'M5');
+  assert.equal(evs()[0].rule, 'R-09');
+  assert.match(evs()[0].detail, /Sent to its owner, Dana F\., and escalated to Operational Risk/);
+  S.controlHealth(); S.controlHealth();
+  assert.equal(evs().length, 1, 'logged once, not on every look');
+  assert.equal(S.hasUserData(), false, 'the escalation is the app\'s own step');
+  assert.ok(S.todoCounts('oprisk').items.some((i) => i.route === 'monitor' && /escalated to you/.test(i.text)));
+});
+
 test('no native confirm, prompt or alert is left anywhere: every question uses the in-page dialog', () => {
   const files = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js'), [path.join(ROOT, 'index.html')]);
   const bare = /(^|[^.\w$])(confirm|prompt|alert)\s*\(/m;
