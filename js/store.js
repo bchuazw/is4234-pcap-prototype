@@ -1112,7 +1112,7 @@
       out.signedOff = x.id;
       /* Head of Loan Ops: a false alarm (the schedule still has the rate before the reset), signed off and waiting for the release decision. */
       var f = referInstruction(instr({ loanId: 'LN-1009', interest: 1365000, note: 'Quarterly interest at the new rate in the agent notice.' }), 'U-MK1', 'The agent notice has the new rate after the reset. The loan schedule still has the old rate.');
-      opRiskAccept(f.id, 'U-OR1', E.ACCEPT_CATEGORIES[0], 'False alarm. The rate reset on the first of the month and the agent notice is right. The schedule line still has the old rate.', 180, { ownerId: 'U-HLO' });
+      opRiskAccept(f.id, 'U-OR1', E.ACCEPT_CATEGORIES[0], 'The rate reset on the first of the month and the agent notice is right. The schedule line still has the old rate.', 180, { ownerId: 'U-HLO' });
       out.toRelease = f.id;
       /* Operational Risk: the 2020 payment, stopped when it was keyed and referred by the maker, waiting for an assessment. */
       var r = referInstruction(E.REPLAY.instruction(), 'U-MK1', 'Set up as WA-01 for the roll-up, as we always do. Please check it.');

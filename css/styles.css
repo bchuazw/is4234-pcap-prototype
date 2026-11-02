@@ -1268,7 +1268,7 @@ details.cq-figs[open] .cq-figs-meta { visibility: hidden; }
 /* Where the expected amount on the consequence card comes from (an off-cycle schedule line). */
 .cq-src { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
 .cq-src .ico { flex: none; margin-top: 2px; color: var(--muted); }
-.figs tr.src td { font-family: var(--font); font-size: 12.5px; text-align: left; white-space: normal; color: var(--ink-2); }
+.figs tr.src td { font-family: var(--font); font-size: 12.5px; white-space: normal; color: var(--ink-2); }
 /* Test results: one plain line on what the synthetic test does and does not show. */
 .what-it-shows { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-bg); border: 1px solid var(--accent-line); font-size: 13.5px; line-height: 1.5; color: var(--ink); }
 .what-it-shows .ico { flex: none; margin-top: 2px; color: var(--accent); }

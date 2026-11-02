@@ -80,7 +80,7 @@
       tile('Approver time added', U.fmtSec(s.time.medianTier23Sec), 'when a payment needs a closer look. Routine ' + U.fmtSec(s.time.medianTier1Sec) + '. Average over all ' + U.fmtSec(s.time.meanAllSec) + '. Model estimate.') +
       tile('Stopped payments', String(s.tiers.clean[3] + s.tiers.error[3]), s.time.stoppedBeforeApprover + ' stopped when keyed, so no approver saw them. About ' + (s.time.medianHoldMin == null ? 'n/a' : Math.round(s.time.medianHoldMin) + ' min') + ' of Operational Risk time each, model estimate.') +
       '</div>' +
-      '<p class="muted small">Correct workaround payments that get a closer look by policy, with no rule firing: ' + s.policyTier2Clean + '. These are not counted as false alarms but they do add time. Measured in this browser so far: ' + (meas.n ? meas.n + ' closer-look reviews, median ' + U.fmtSec(meas.median) + ' on screen.' : 'none yet.') + '</p></div>';
+      '<p class="muted small">Correct payments that get a closer look by policy, because they use a workaround or send principal out of the bank, with no rule firing: ' + s.policyTier2Clean + '. These are not counted as false alarms but they do add time. Measured in this browser so far: ' + (meas.n ? meas.n + ' closer-look reviews, median ' + U.fmtSec(meas.median) + ' on screen.' : 'none yet.') + '</p></div>';
 
     var replay = r.replay;
     var replayCard = '<div class="card replay ' + (replay.pass ? 'pass' : 'fail') + '"><div class="card-head"><h2>The 2020 payment as a test</h2>' + (replay.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</div>' +

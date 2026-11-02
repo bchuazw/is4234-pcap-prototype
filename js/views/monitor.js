@@ -22,7 +22,7 @@
   function openLine(h, ownerName) {
     if (!h.failed) return '';
     var limit = E.DEFAULT_CONFIG.escalateHours;
-    return '<div class="cc-open' + (h.escalated ? ' is-esc' : '') + '">' + U.icon(h.escalated ? 'warn' : 'clock') + '<span>Failing for ' + U.esc(openFor(h.openHours)) + ', since ' + U.esc(sinceText(h.since)) + '. Sent to ' + U.esc(ownerName) + '. ' +
+    return '<div class="cc-open' + (h.escalated ? ' is-esc' : '') + '">' + U.icon(h.escalated ? 'warn' : 'clock') + '<span>Failing for ' + U.esc(openFor(h.openHours)) + ', since ' + U.esc(sinceText(h.since)) + '. Sent to ' + U.esc(ownerName) + (/\.$/.test(ownerName) ? ' ' : '. ') +
       (h.escalated ? '<strong>Escalated to Operational Risk</strong> (open more than ' + limit + ' hours).' : 'Goes to Operational Risk if still open after ' + limit + ' hours.') + '</span></div>';
   }
 

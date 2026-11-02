@@ -602,7 +602,9 @@
       (p.heldAt && p.status === 'HELD' ? '<li><span class="ppl-role">Stopped</span><span class="ppl-name">' + esc(U.fmtDateTime(p.heldAt)) + '</span></li>' : '');
     if (opts.fold) {
       var notes = [p.instr.makerNote, opts.hideCheckerNote ? '' : p.checkerNote, a && a.note].filter(Boolean).length;
-      var meta = [name(p.makerId), name(p.checkerId), name(p.approverId)].join(', ') + (notes ? '. ' + notes + ' note' + (notes === 1 ? '' : 's') : '');
+      var who = [name(p.makerId), name(p.checkerId), name(p.approverId)].join(', ');
+      /* Names like "Lena B." already end in a full stop, so do not add a second one. */
+      var meta = who + (notes ? (/\.$/.test(who) ? ' ' : '. ') + notes + ' note' + (notes === 1 ? '' : 's') : '');
       return fold('people', opts.title || 'People and notes', meta, '<ul class="ppl">' + items + '</ul>', opts.open);
     }
     return '<section class="card people" aria-label="' + esc(opts.title || 'People and notes') + '"><div class="sec-head"><h3>' + esc(opts.title || 'People and notes') + '</h3></div><ul class="ppl">' + items + '</ul></section>';
