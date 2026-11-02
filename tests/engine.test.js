@@ -81,10 +81,27 @@ test('a normal scheduled interest payment releases at Tier 1', () => {
   assert.match(ev.statement.join(' '), /This matches the schedule\./);
 });
 
-test('a scheduled principal repayment with interest releases at Tier 1', () => {
-  const ev = E.evaluate(cleanInterest({ loanId: 'LN-1002', operation: 'PRINCIPAL_AND_INTEREST', interest: 618750, principal: 12500000 }), ctx());
-  assert.equal(ev.tier, 1);
-  assert.deepEqual(ev.hits, []);
+test('a correct scheduled principal payment is Tier 2: no rule fails, but principal leaving the bank always gets the re-key', () => {
+  const c = ctx();
+  const ev = E.evaluate(cleanInterest({ loanId: 'LN-1002', operation: 'PRINCIPAL_AND_INTEREST', interest: 618750, principal: 12500000 }), c);
+  assert.equal(ev.tier, 2, 'the USD 12.5M instalment no longer goes through in one click');
+  assert.deepEqual(ev.hits, [], 'nothing is wrong with it, so it is not a false alarm');
+  assert.equal(ev.results['R-02'].status, 'pass');
+  assert.equal(ev.results['R-02'].floor, 2);
+  assert.equal(ev.requiresRekey, true);
+  assert.equal(ev.results['R-07'].status, 'pending');
+  assert.match(ev.tierReasons.join(' '), /Principal leaves the bank \(USD 12,500,000, as scheduled\), so at least Tier 2/);
+  assert.equal(E.rekeyResult(ev, [{ amount: 13118750, nature: 'PRINCIPAL_AND_INTEREST' }]).status, 'pass');
+  /* Tier 2 needs an in-house approver: Wipro's manager is refused even for another team's maker. */
+  const wipro = E.evaluate(cleanInterest({ loanId: 'LN-1002', operation: 'PRINCIPAL_AND_INTEREST', interest: 618750, principal: 12500000, makerId: 'U-AP9', checkerId: 'U-AP7', approverId: 'U-SUP1' }), c);
+  assert.equal(wipro.gate.open, false);
+  assert.match(wipro.results['R-06'].message, /Tier 2 or 3 need an in-house \(Citi\) approver/);
+  /* Unscheduled principal is still a Tier 3 hard stop. */
+  assert.equal(E.evaluate(cleanInterest({ principal: 12500000 }), c).tier, 3);
+  /* Routine interest keeps the one-click path, and a Wipro approver is not refused for being outsourced there. */
+  const t1 = E.evaluate(cleanInterest({ makerId: 'U-AP9', checkerId: 'U-AP7', approverId: 'U-SUP1' }), c);
+  assert.equal(t1.tier, 1);
+  assert.doesNotMatch(t1.results['R-06'].message, /in-house/);
 });
 
 test('a correct WA-01 roll-up is Tier 2 by policy, keeps principal inside the bank, and passes a matching re-key', () => {

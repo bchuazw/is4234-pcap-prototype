@@ -30,21 +30,21 @@ function replayToHold(S) {
   return p;
 }
 
-test('Board estimates come from the synthetic month and the synthetic numbers are unchanged', () => {
+test('Board estimates come from the synthetic month and the synthetic numbers are pinned', () => {
   const run = E.runSyntheticTest({ seed: 4234 });
-  assert.equal(run.fingerprint, 'f5f23476', 'the 5.8 results did not move');
+  assert.equal(run.fingerprint, '60c513af', 'the 5.8 results only move when the rules or the test model change');
   const v = E.valueEstimate(run.summary);
   assert.equal(v.n, 500);
-  assert.equal(v.tier1, 409, 'Tier 1 payments get no extra step');
-  assert.equal(v.tier2 + v.tier3, 86);
-  assert.equal(Math.round(v.tier1Share * 1000) / 10, 81.8, 'about 82% of payments are Tier 1, not 95%: override payments are Tier 2 by policy');
+  assert.equal(v.tier1, 328, 'Tier 1 payments get no extra step');
+  assert.equal(v.tier2 + v.tier3, 167);
+  assert.equal(Math.round(v.tier1Share * 1000) / 10, 65.6, 'about 66% of payments are Tier 1, not 95%: workaround and principal payments are Tier 2 by policy');
   assert.equal(v.cleanShare, 0.95);
-  assert.equal(v.policyTier2Clean, 64);
-  assert.equal(v.meanSec, 13.2);
-  assert.equal(v.tier1MedianSec, 7.2);
-  assert.equal(v.tier23MedianSec, 41.1);
-  assert.equal(v.approverHoursPerMonth, 1.8);
-  assert.equal(v.opRiskHoursPerMonth, 2.9);
+  assert.equal(v.policyTier2Clean, 145);
+  assert.equal(v.meanSec, 18.9);
+  assert.equal(v.tier1MedianSec, 7.8);
+  assert.equal(v.tier23MedianSec, 45.7);
+  assert.equal(v.approverHoursPerMonth, 2.6);
+  assert.equal(v.opRiskHoursPerMonth, 3);
   assert.equal(v.stoppedBeforeRelease, 22);
   assert.equal(v.foundSameDay, 3);
   assert.equal(v.auditManualHoursPerQuarter, 8.3, '25 payments at 20 minutes each, an assumption');

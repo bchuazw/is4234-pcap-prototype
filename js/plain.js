@@ -33,9 +33,9 @@
   /* Tiers: the plain name leads, the tier number is secondary. */
   var TIERS = {
     1: { n: 1, label: 'Routine', short: 'Routine', code: 'Tier 1',
-      what: 'Matches the loan schedule. The approver reads one sentence and releases it.' },
+      what: 'Interest that matches the loan schedule. The approver reads one sentence and releases it.' },
     2: { n: 2, label: 'Needs a closer look', short: 'Closer look', code: 'Tier 2',
-      what: 'Something is a little off, or a workaround is used. The approver types the amount from their own source, then confirms.' },
+      what: 'Something is a little off, principal leaves the bank, or a workaround is used. An in-house approver types the amount from their own source, then confirms.' },
     3: { n: 3, label: 'Stopped', short: 'Stopped', code: 'Tier 3',
       what: 'The approver cannot release it. Only Operational Risk, a separate team, can decide.' }
   };

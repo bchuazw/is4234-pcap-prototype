@@ -181,13 +181,13 @@
 
   /* Plain-word explanations for the terms used on screen. Shown on hover, focus or tap of a dotted term. */
   var GLOSSARY = {
-    tier1: 'Routine: the amount matches the loan schedule and no workaround is used. The approver reads one sentence and releases it. No extra step.',
-    tier2: 'Needs a closer look: something is a little off, or a workaround is used. The approver types the amount and the kind of payment from their own source, then ticks a confirmation.',
+    tier1: 'Routine: interest that matches the loan schedule, with no workaround and no principal leaving the bank. The approver reads one sentence and releases it. No extra step.',
+    tier2: 'Needs a closer look: something is a little off, principal leaves the bank (even when it is due), or a workaround is used. An in-house approver types the amount and the kind of payment from their own source, then ticks a confirmation.',
     tier3: 'Stopped: the approver cannot release it. Only Operational Risk can, and only with a written risk sign-off.',
     wash: 'Wash account: an internal account of the bank. Money sent there stays inside the bank. The interest-only workaround keeps the principal in the bank only when FRONT, FUND and PRINCIPAL all go there.',
     legs: 'FRONT, FUND and PRINCIPAL are the three parts of a loan payment in the core system. Each part goes either out to the lenders or stays in the bank (the wash account).',
     rekey: 'Your own figure: the approver types the amount and says what kind of payment it is from their own source, before seeing the maker\'s numbers or the checker\'s note. It stops one shared mistake getting past three people.',
-    gate: 'Who can approve: the approver must be certified for the workaround, within their approval limit, independent of the maker and checker, and work for the bank (not the outsourced provider) for workaround payments.',
+    gate: 'Who can approve: the approver must be certified for the workaround, within their approval limit, independent of the maker and checker, and work for the bank (not the outsourced provider) for any payment that needs a closer look.',
     acceptance: 'Risk sign-off (the report calls it a risk acceptance): the record made when a stopped payment is released anyway. It gives the reason and names the manager who owns the risk. It covers this one payment and ends with the day. Internal Audit reviews every one.',
     dispensation: 'Dispensation: the date until which the bank accepts a workaround. After that date PCAP stops any payment that uses it.',
     override: 'Workaround: a manual way around a limit of the core system, such as WA-01 for interest-only payments. It can only be used if it is on the workaround list.',

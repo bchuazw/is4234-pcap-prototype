@@ -52,7 +52,7 @@
   /* Plain names lead. The tier number is secondary (PCAP.plain). */
   var TIER_TEXT = {
     1: { title: 'Routine.', text: 'Nothing unusual. The approver reads what the payment will do, then releases it.', icon: 'check' },
-    2: { title: 'Needs a closer look.', text: 'The approver types the amount from their own source, then confirms what the payment will do.', icon: 'warn' },
+    2: { title: 'Needs a closer look.', text: 'An in-house approver types the amount from their own source, then confirms what the payment will do.', icon: 'warn' },
     3: { title: 'Stopped.', text: 'Only Operational Risk can release this payment.', icon: 'stop' }
   };
   function tierName(t, short) { var x = PCAP.plain.tier(t); return short ? x.short : x.label; }
@@ -338,7 +338,7 @@
         if (/The maker also checked/.test(msg)) return 'The maker also checked the payment';
         if ((x = /same team as the (.+?) \(/.exec(msg))) return ap + ' sits in the same team as the ' + x[1];
         if (/reporting line/.test(msg)) return ap + ' is in their reporting line';
-        if (/in-house/.test(msg)) return 'Workaround payments need an approver who works for the bank';
+        if (/in-house/.test(msg)) return 'A payment that needs a closer look needs an approver who works for the bank';
         return trimDot(msg);
       case 'R-01':
         if (s === 'na') return 'Variance not recorded';
@@ -349,7 +349,7 @@
         return trimDot(msg);
       case 'R-02':
         if (s === 'na') return 'Principal check not recorded';
-        if (s === 'pass') return /^No principal/.test(msg) ? 'No principal leaves the bank' : 'Principal matches what is due';
+        if (s === 'pass') return /^No principal/.test(msg) ? 'No principal leaves the bank' : 'Principal leaves as scheduled, so it always gets a closer look';
         if ((x = /^(USD [\d,.]+) of principal would leave the bank, but no principal is due/.exec(msg))) return shortAmt(U.parseAmount(x[1])) + ' of principal leaves, but none is due';
         if (/but only/.test(msg)) return 'More principal leaves than is due';
         return trimDot(msg);
@@ -882,6 +882,7 @@
     var r = ev.results || {};
     if (r['R-01'] && r['R-01'].status === 'fire') return 'the amount is not what the loan schedule expects';
     if (ev.override && ev.override.used) return 'it uses a workaround';
+    if (ev.consequence && ev.consequence.externalPrincipal > 0) return 'principal leaves the bank';
     return 'something about it is unusual';
   }
 

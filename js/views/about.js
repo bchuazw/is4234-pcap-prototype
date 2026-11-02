@@ -179,7 +179,7 @@
   function tiersBody() {
     return '<div class="tier-grid">' + [1, 2, 3].map(function (t) {
       return '<div class="tier-card">' + U.tierBadge(t, { big: true }) + '<p>' + esc(E.TIERS[t].action) + '</p><p class="muted small">On screen: "' + esc(PCAP.plain.tier(t).label) + '". ' + esc(PCAP.plain.tier(t).what) + '</p></div>';
-    }).join('') + '</div><p class="muted small">Any payment using a valid registered override is at least Tier 2. R-05 and R-06 failures close the M3 gate for that approver whatever the tier. The thresholds are the bank\'s risk tolerance levels: what each level of risk makes people do (L2).</p>';
+    }).join('') + '</div><p class="muted small">Any payment that sends principal out of the bank (even when it is due) or uses a valid registered override is at least Tier 2, and every Tier 2 or 3 payment needs an in-house approver (R-06). R-05 and R-06 failures close the M3 gate for that approver whatever the tier. The thresholds are the bank\'s risk tolerance levels: what each level of risk makes people do (L2).</p>';
   }
 
   /* WA-01 in the L5 risk model (report 3.3.2). Moved here from the Workarounds screen. */

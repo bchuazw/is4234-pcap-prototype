@@ -54,6 +54,7 @@
     tier3LargeExpected: 1000000, // R-01: for an expected payment above USD 1 million (report Table 6)...
     tier3LargePct: 0.05,      // R-01: ...a variance above 5% is Tier 3
     overrideFloorTier: 2,     // any valid override payment is at least Tier 2
+    principalFloorTier: 2,    // any principal leaving the bank is at least Tier 2, even when it is scheduled
     rekeyTolerance: 0.5,      // R-07: re-key must match to the nearest dollar
     fastLookSec: 8,           // R-08: a look at the consequence screen under 8 s is a "fast look"
     fastApproveSec: 5,        // R-08: a Tier 2 approval within 5 s of the warning
@@ -83,8 +84,8 @@
       logic: 'Compares the amount PCAP computes will leave the bank with the amount the loan schedule expects on the value date, less anything already paid. Tolerance is the larger of USD 500 or 0.1% of the expected amount.',
       action: 'Beyond tolerance: Tier 2. Tier 3 hard stop when nothing is due, the variance is above 10% or USD 5 million, or it is above 5% on an expected payment above USD 1 million.' },
     'R-02': { id: 'R-02', name: 'Unscheduled principal', module: 'M2', obligations: ['O2'], screen: 'Payment desk',
-      logic: 'Flags principal that would leave the bank when the schedule has no principal due on that date, or more principal than is due.',
-      action: 'Tier 3 hard stop.' },
+      logic: 'Flags principal that would leave the bank when the schedule has no principal due on that date, or more principal than is due. Principal that is due still leaves the bank, so a correct scheduled principal payment is at least Tier 2.',
+      action: 'Unscheduled principal: Tier 3 hard stop, whatever the amount. Scheduled principal: at least Tier 2 (in-house approver and blind re-key).' },
     'R-03': { id: 'R-03', name: 'Unregistered workaround', module: 'M1', obligations: ['O4', 'O6'], screen: 'Payment desk and M1 register',
       logic: 'Any override (an override code, a wash-account setting or the workaround operation) must match an active M1 register entry for this operation, with an in-date dispensation.',
       action: 'Tier 3 hard stop. Counted as unregistered override use.' },
@@ -95,7 +96,7 @@
       logic: 'The approver must hold a current certification for the override type, and an approval limit at least equal to the amount PCAP computes will leave the bank (consequence-based entitlement).',
       action: 'M3 gate closes for this approver. Blocked attempt logged. Reassign to an entitled approver.' },
     'R-06': { id: 'R-06', name: 'Independence', module: 'M3', obligations: ['O5', 'O2'], screen: 'Payment desk',
-      logic: 'The approver must not be the maker or checker, must not sit in their team or reporting line, and must be an in-house (Citi) employee for override payments.',
+      logic: 'The approver must not be the maker or checker, must not sit in their team or reporting line, and must be an in-house (Citi) employee for any payment at Tier 2 or 3.',
       action: 'M3 gate closes for this approver. Blocked attempt logged. Reassign to an independent in-house approver.' },
     'R-07': { id: 'R-07', name: 'Active confirmation', module: 'M2', obligations: ['O2'], screen: 'Payment desk (approver)',
       logic: 'At Tier 2 and 3 the approver re-keys the outgoing amount and says whether it is interest, principal or both, without seeing the maker\'s figure or the checker\'s note. PCAP compares both with what it computed.',
@@ -113,7 +114,7 @@
 
   var TIERS = {
     1: { id: 1, name: 'Tier 1', label: 'Routine', action: 'Normal release after the approver reads the consequence statement.' },
-    2: { id: 2, name: 'Tier 2', label: 'Elevated', action: 'Extra confirmation: blind re-key of the amount, then an explicit confirmation of the consequence statement.' },
+    2: { id: 2, name: 'Tier 2', label: 'Elevated', action: 'An in-house approver (certified for the workaround when one is used) re-keys the amount and payment type blind, then confirms the consequence statement. Every payment that sends principal out of the bank or uses a registered workaround is at least Tier 2.' },
     3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. Only Operational Risk (second line) can release it, by recording a risk acceptance with a reason, the first-line risk owner and an expiry.' }
   };
 
@@ -491,7 +492,7 @@
     var tol = Math.max(cfg.toleranceAbs, due * cfg.tolerancePct);
     if (out <= 0) return { rule: 'R-02', status: 'pass', message: 'No principal leaves the bank.' };
     var excess = round2(out - due);
-    if (excess <= tol) return { rule: 'R-02', status: 'pass', message: fmtUSD(out) + ' of principal matches the principal due.' };
+    if (excess <= tol) return { rule: 'R-02', status: 'pass', floor: cfg.principalFloorTier, message: fmtUSD(out) + ' of principal matches the principal due. Principal leaving the bank is always at least Tier ' + cfg.principalFloorTier + '.' };
     var msg = due > 0
       ? fmtUSD(out) + ' of principal would leave the bank, but only ' + fmtUSD(due) + ' is due on ' + fmtDate(exp.date) + '.'
       : fmtUSD(out) + ' of principal would leave the bank, but no principal is due on ' + fmtDate(exp.date) + '.';
@@ -564,7 +565,10 @@
     return { rule: 'R-05', status: 'pass', message: okMsg + '.' };
   }
 
-  function ruleR06Independence(maker, checker, approver, ov) {
+  /* elevated: the payment is at Tier 2 or 3, so it needs an in-house approver (report Table 6: "an elevated chain lacks a
+     certified in-house approver"). A valid workaround always makes a payment elevated. */
+  function ruleR06Independence(maker, checker, approver, ov, elevated) {
+    if (elevated == null) elevated = !!(ov && ov.used);
     if (!approver) return { rule: 'R-06', status: 'fire', gate: true, message: 'No approver assigned.' };
     var problems = [];
     if (maker && approver.id === maker.id) problems.push('The approver is the maker.');
@@ -580,9 +584,9 @@
       if (u.reportsTo === approver.id || approver.reportsTo === u.id) line.push(i === 0 ? 'maker' : 'checker');
     });
     if (line.length) problems.push(approver.name + ' is in the reporting line of the ' + listAnd(line) + '.');
-    if (ov.used && !approver.inHouse) problems.push('Override payments need an in-house (Citi) approver. ' + approver.name + ' works for ' + approver.employer + '.');
+    if (elevated && !approver.inHouse) problems.push('Payments at Tier 2 or 3 need an in-house (Citi) approver. ' + approver.name + ' works for ' + approver.employer + '.');
     if (problems.length) return { rule: 'R-06', status: 'fire', gate: true, message: problems.join(' ') };
-    return { rule: 'R-06', status: 'pass', message: approver.name + ' (' + approver.employer + ', ' + approver.team + ') is independent of the maker and checker' + (ov.used ? ' and in-house, as override payments require' : '') + '.' };
+    return { rule: 'R-06', status: 'pass', message: approver.name + ' (' + approver.employer + ', ' + approver.team + ') is independent of the maker and checker' + (elevated ? ' and in-house, as payments at Tier 2 or 3 require' : '') + '.' };
   }
 
   /* R-07: compare the approver's blind re-key with what PCAP computed.
@@ -645,11 +649,11 @@
     var checker = byId(ctx.users, instr.checkerId);
     var approver = byId(ctx.users, instr.approverId);
 
+    /* The payment rules set the tier first. The M3 gate (R-05, R-06) never changes the tier, but R-06 needs to know it:
+       a payment at Tier 2 or 3 needs an in-house approver. */
     var results = {};
     results['R-03'] = ruleR03Unregistered(ov, ctx.users);
     results['R-04'] = ruleR04Incomplete(instr, ov);
-    results['R-05'] = ruleR05Certification(approver, ov, c, bd);
-    results['R-06'] = ruleR06Independence(maker, checker, approver, ov);
     results['R-01'] = ruleR01Variance(c, exp, cfg);
     results['R-02'] = ruleR02UnscheduledPrincipal(c, exp, cfg);
 
@@ -659,16 +663,20 @@
       tier = cfg.overrideFloorTier;
       reasons.push('Override ' + ov.entry.id + ' in use, so at least Tier ' + cfg.overrideFloorTier + ' (extra confirmation).');
     }
-    var hits = [];
-    RULE_ORDER.forEach(function (k) {
+    if (results['R-02'].floor && results['R-02'].floor > tier) {
+      tier = results['R-02'].floor;
+      reasons.push('Principal leaves the bank (' + fmtUSD(c.externalPrincipal) + ', as scheduled), so at least Tier ' + results['R-02'].floor + ' (in-house approver and blind re-key).');
+    }
+    ['R-03', 'R-04', 'R-01', 'R-02'].forEach(function (k) {
       var r = results[k];
-      if (!r || r.status !== 'fire') return;
-      hits.push(k);
-      if (r.tier) {
+      if (r.status === 'fire' && r.tier) {
         if (r.tier > tier) tier = r.tier;
         reasons.push(k + ' ' + RULES[k].name + ': ' + r.message);
       }
     });
+    results['R-05'] = ruleR05Certification(approver, ov, c, bd);
+    results['R-06'] = ruleR06Independence(maker, checker, approver, ov, tier >= 2);
+    var hits = RULE_ORDER.filter(function (k) { return results[k] && results[k].status === 'fire'; });
     results['R-07'] = tier >= 2
       ? { rule: 'R-07', status: 'pending', message: 'At Tier ' + tier + ' the approver must re-key the outgoing amount blind.' }
       : { rule: 'R-07', status: 'na', message: 'Not needed at Tier 1.' };
