@@ -12,10 +12,14 @@
   var views = PCAP.views = PCAP.views || {};
 
   var SEED = 4234;
-  var synCache = null;
-  /* The synthetic month behind every estimate. 12 ms to run, so it is computed once per page load. */
+  var runCache = null, synCache = null;
+  /* The synthetic month behind every estimate and every figure on the About page. About 12 ms to run, so it runs once per page load. */
+  function run() {
+    if (!runCache) runCache = E.runSyntheticTest({ seed: SEED });
+    return runCache;
+  }
   function estimate() {
-    if (!synCache) synCache = E.valueEstimate(E.runSyntheticTest({ seed: SEED }).summary);
+    if (!synCache) synCache = E.valueEstimate(run().summary);
     return synCache;
   }
   function week() { return store.weekSummary(); }
@@ -138,5 +142,5 @@
       'Marked ' + est() + ' are estimates from the synthetic test model (seed ' + SEED + ') or a stated assumption, not a timed walk-through with real staff. Counted figures come from the event log.</p></div>';
   }
 
-  views.value = { estimate: estimate, week: week, strip: strip, todo: todo, boardCard: boardCard };
+  views.value = { run: run, estimate: estimate, week: week, strip: strip, todo: todo, boardCard: boardCard };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

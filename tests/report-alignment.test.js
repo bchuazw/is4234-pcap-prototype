@@ -229,6 +229,39 @@ test('the expected amount is independent: the off-cycle 2020 line was added and 
   assert.match(desk, /outside the maker\\'s team/);
 });
 
+test('wording matches the court record and the run: before release, a documented three-field workaround, no unsupported claims', () => {
+  const src = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  assert.match(src('js/views/home.js'), /None of their screens showed, before release, what it would really do\./);
+  const all = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js')).map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  assert.ok(!/undocumented|informal workaround|unofficial|tacit/i.test(all), 'no label calls the workaround undocumented, informal, unofficial or tacit');
+  const about = src('js/views/about.js');
+  assert.match(about, /manual three-field workaround/);
+  assert.ok(!/half an hour/.test(about), 'the unsupported review-time claim is gone');
+  assert.ok(!/cannot be recalled/.test(about), 'the unsupported recall claim is gone');
+  assert.match(about, /About 0\.56 in 2020/, 'the exposure fact stays');
+  assert.ok(!/refused to return/.test(about));
+  assert.match(about, /lenders did not return/);
+  /* Run figures are computed from the engine, not typed in. */
+  for (const old of ['15 holds', '82%', '409', '41.1 s', '7.2 s', '13.2 s', '1,138', 'f5f23476', 'scored 75']) assert.ok(about.indexOf(old) < 0, 'no hard-coded ' + old);
+  assert.match(about, /PCAP\.views\.value\.run\(\)/);
+  /* Test results and About say what the synthetic test does and does not show, and what protects a Tier 1 payment. */
+  assert.match(src('js/views/synthetic.js'), /not evidence that PCAP works on real payments/);
+  assert.match(src('js/views/synthetic.js'), /About 1 in 10 planted mistakes are tiny slips meant to get through/);
+  assert.match(about, /For a Tier 1 payment the approver reads one sentence and clicks once, so the automated checks, R-01 against the loan schedule and R-02 against unscheduled principal, are what protect those payments/);
+  assert.match(about, /Off-cycle schedule lines, such as the 2020 roll-up interest, must be created and approved outside the maker/);
+});
+
+test('the 50-seed figures the About page and README quote equal a fresh run of seeds 1 to 50', () => {
+  const a = E.runSeedSweep({ from: 1, to: 50 });
+  const ref = E.REFERENCE_SWEEP;
+  for (const k of ['seeds', 'errors', 'stopped', 'rateMin', 'rateMedian', 'rateMax', 'foundAfter', 'missed', 'clean', 'falseAlarms', 'falseAlarmsHeld', 'replayFails']) assert.equal(a[k], ref[k], k);
+  for (const c of ['T3', 'GATE', 'T2', 'BELOW']) {
+    assert.equal(a.classes[c].count, ref.classes[c].count, c + ' count');
+    assert.equal(a.classes[c].stopped, ref.classes[c].stopped, c + ' stopped');
+    assert.equal(a.classes[c].foundAfter, ref.classes[c].foundAfter, c + ' found after');
+  }
+});
+
 test('every script parses, including the screens the Node tests do not load', () => {
   const files = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js'));
   for (const f of files) {

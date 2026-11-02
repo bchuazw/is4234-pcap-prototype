@@ -39,7 +39,7 @@
 
   var ROOT_CAUSES = [
     ['RC1', 'Approvals evidenced authorisation, not comprehension', 'M2 states what will leave the bank. R-07 blind re-key of the amount and the payment type. M4 watches how approvals happen.', 'desk'],
-    ['RC2', 'Legacy system limit handled by an undocumented workaround', 'M1 register with owner, required fields and dispensation. R-03 blocks unregistered overrides, R-04 incomplete ones.', 'register'],
+    ['RC2', 'Legacy system limit handled by a manual three-field workaround', 'M1 register with owner, required fields and dispensation. R-03 blocks unregistered overrides, R-04 incomplete ones.', 'register'],
     ['RC3', 'Authority without competency or independence', 'M3 gate: R-05 certification and an approval limit checked against the computed amount, R-06 independent, in-house approver.', 'desk'],
     ['RC4', 'No compensating controls, slow remediation', 'M5 checks the compensating controls run every day (R-09). M1 dispensations and refresh plans put a date on the workaround.', 'monitor'],
     ['RC5', 'Monitoring saw that steps ran, not how people approved', 'M4 R-08 team scores and the outsourced provider card. M6 KRIs and an evidence pack tied to obligations.', 'analytics']
@@ -74,27 +74,40 @@
     { head: 'Third line: independent assurance', items: ['Internal Audit: read only, reviews every risk acceptance', 'Pulls the evidence pack and tests every payment', 'Does not run the controls it audits'] }
   ];
 
-  var FEAS = [
-    ['In-house approvers', 'A blind re-key and a confirmation at Tier 2 and 3 only. Tier 1 keeps today\'s flow.', 'Median 41 s added at Tiers 2 and 3 in the synthetic model. The Revlon review itself took under half an hour.', 'A timed walk-through with real approvers'],
+  /* Figures from the synthetic month (seed 4234), computed when the page is drawn, so they always match Test results. */
+  function est() { return PCAP.views.value.estimate(); }
+  function syn() { return PCAP.views.value.run(); }
+  function sec1(x) { return x == null ? 'n/a' : String(Math.round(x * 10) / 10).replace(/\.0$/, ''); }
+  function pct1(x) { return x == null ? 'n/a' : (Math.round(x * 1000) / 10).toFixed(1) + '%'; }
+  function pct0(x) { return x == null ? 'n/a' : Math.round(x * 100) + '%'; }
+
+  function feasRows() {
+    var x = est(), s = syn().summary;
+    return [
+    ['In-house approvers', 'A blind re-key and a confirmation at Tier 2 only. Stopped payments never reach them, and routine interest keeps today\'s flow.', 'Median ' + sec1(x.tier23MedianSec) + ' s added at Tiers 2 and 3 in the synthetic model.', 'A timed walk-through with real approvers'],
     ['Approvers and the Data Protection Officer', 'M4 monitoring of how they approve.', 'Team level, at least 3 approvers per team, three signals, never automatic discipline, staff told (PDPA purpose and notification).', 'DPO review and staff consultation before launch'],
     ['Wipro, the outsourced provider', 'Certification, monitoring and audit terms in the contract. Override releases move to a Citi approver.', 'Wipro keeps the tasks. MAS expects the bank to keep oversight of outsourced work (Guidelines on Outsourcing (Banks) 3.1.1, Notice 658).', 'Cost of the contract change'],
-    ['Operational Risk', 'Assessing stopped payments the same day, without the power to release them.', '15 holds in 500 payments (3%) in the synthetic run, about 10 minutes each in the model.', 'Staffing and the daily cut-off'],
+    ['Operational Risk', 'Assessing stopped payments the same day, without the power to release them.', x.tier3 + ' stopped payments in ' + x.n + ' (' + pct1(x.tier3 / x.n) + ') in the synthetic run, about ' + Math.round(s.time.medianHoldMin) + ' minutes each in the model.', 'Staffing and the daily cut-off'],
     ['Technology and the core system', 'A hold point between the core loan system and payment release, and read access to loan schedules.', 'PCAP is an overlay. It does not change how the core system calculates, so it can run while the core is replaced.', 'Whether the core system and payment gateway can hold a payment for PCAP. This is the main readiness question'],
-    ['Board and senior management', 'Paying for the build. The Head of Loan Ops owns the risk acceptances and the release decisions.', 'About USD 894M of principal left the bank in 2020, lenders refused to return about USD 504M, and penalties for wider control failures reached USD 535.6M.', 'A build and running cost estimate'],
+    ['Board and senior management', 'Paying for the build. The Head of Loan Ops owns the risk acceptances and the release decisions.', 'About USD 894M of principal left the bank in 2020, lenders did not return about USD 504M, and penalties for wider control failures reached USD 535.6M.', 'A build and running cost estimate'],
     ['MAS, the regulator', 'Nothing new. PCAP is evidence for rules that already exist.', 'Most obligation rows are MAS Internal Controls, Outsourcing, Notice 658 and TRM. R7 is a separate recommendation to regulators.', 'None for PCAP itself']
-  ];
+    ];
+  }
 
   /* Who uses PCAP every day, what it does for them and what it costs them (usability and value review, 25 Oct 2026). */
-  var USERS = [
+  function userRows() {
+    var x = est(), s = syn().summary;
+    return [
     ['Maker (Wipro)', 'Says in plain words what the payment will do before the checker sees it. Fills in the next unpaid schedule line and remembers the checker and approver. Marks any workaround leg still missing.', 'One review screen per payment, about 5 s (estimate)'],
     ['Checker (Wipro)', 'The same sentence and failed checks the approver will see. A return reason is filled in from the failed checks. A stopped payment never reaches them.', 'Nothing extra. A reason only to refer a payment that became stopped'],
-    ['Approver (Citi)', 'Routine payments are one sentence and one button, and the next one opens by itself. A blind re-key only when something is off.', 'About 7 s at Tier 1 and 41 s at Tiers 2 and 3, 13 s on average (model estimate)'],
-    ['Operational Risk', 'Only stopped payments reach them, with who referred each one, why and why PCAP stopped it. They return it or record a short risk acceptance. They cannot release it.', 'About 10 minutes per hold, 17 holds a month in the synthetic test (estimate)'],
+    ['Approver (Citi)', 'Routine interest is one sentence and one button, and the next one opens by itself. A blind re-key when something is off, a workaround is used or principal leaves the bank.', 'About ' + Math.round(x.tier1MedianSec) + ' s at Tier 1 and ' + Math.round(x.tier23MedianSec) + ' s at Tiers 2 and 3, ' + Math.round(x.meanSec) + ' s on average per payment (model estimate)'],
+    ['Operational Risk', 'Only stopped payments reach them, with who referred each one, why and why PCAP stopped it. They return it or record a short risk acceptance. They cannot release it.', 'About ' + Math.round(s.time.medianHoldMin) + ' minutes per stopped payment, ' + x.tier3 + ' a month in the synthetic test (estimate)'],
     ['Head of Loan Ops', 'A Needs you list with release decisions first, then what is due on the register, each with its button. The only role that can release a stopped payment, after a risk acceptance.', 'A few attestations a month, and a release decision only when Operational Risk signs off a stopped payment'],
     ['Internal Audit', 'Every payment\'s evidence collected as it happens. Every risk acceptance listed with a one-click review.', 'Reviewing each acceptance. Replaces about 8 hours of hand sampling a quarter (assumption)'],
     ['Board Risk Committee', 'KRIs with red first, and what PCAP costs and buys, from the bank\'s own data.', 'Reading one page a quarter'],
     ['Wipro service manager', 'Provider-level results for the monthly service review, with nobody named.', 'Nothing extra']
-  ];
+    ];
+  }
 
   var MOD_SCREEN = { M1: ['register', 'Workarounds'], M2: ['desk', 'Payments'], M3: ['desk', 'Payments'], M4: ['analytics', 'Approval habits'], M5: ['monitor', 'Daily checks'], M6: ['oversight', 'Board and audit'] };
   var SCREEN_NAME = { desk: 'Payments', register: 'Workarounds', monitor: 'Daily checks', analytics: 'Approval habits', oversight: 'Board and audit', events: 'Activity log', synthetic: 'Test results', about: 'Tiers, below' };
@@ -135,14 +148,14 @@
 
   function feasibilityBody() {
     return '<p><strong>Regulatory frame.</strong> PCAP is designed for a bank supervised by MAS, the report\'s benchmark: Internal Controls, the Guidelines on Outsourcing (Banks) and Notice 658, TRM and the PDPA. Citibank is a US bank, so the court record and the OCC and Federal Reserve orders are the evidence of what failed, not the rules PCAP is built on. Rows O6 and O7 also cite the OCC order, because it sets the remediation and sustained-effectiveness tests.</p>' +
-      table(['Who', 'What they have to accept', 'Why it is workable', 'Still open'], FEAS.map(function (r) {
+      table(['Who', 'What they have to accept', 'Why it is workable', 'Still open'], feasRows().map(function (r) {
         return '<tr><td><strong>' + esc(r[0]) + '</strong></td><td>' + esc(r[1]) + '</td><td>' + esc(r[2]) + '</td><td class="small">' + esc(r[3]) + '</td></tr>';
       })) +
       '<p class="muted small">The root cause in 2020 was an honest error, not fraud, so an internal tool that management wants to use is the right kind of answer (Week 7, FTX tutorial). The design is tiered and risk-based: only Tier 2 and 3 payments get extra steps.</p>';
   }
 
   function usersBody() {
-    return table(['Who', 'What PCAP does for them', 'What it costs them'], USERS.map(function (r) {
+    return table(['Who', 'What PCAP does for them', 'What it costs them'], userRows().map(function (r) {
       return '<tr><td><strong>' + esc(r[0]) + '</strong></td><td>' + esc(r[1]) + '</td><td class="small">' + esc(r[2]) + '</td></tr>';
     })) + '<p class="muted small">Yang Lu (L1 slide 13, L3, L4 slide 17): a control that slows people down or adds work for the vendor meets resistance and gets worked around, which is how the 2020 workaround happened. Each role\'s This week strip shows these numbers from the app\'s own data. Estimates come from the synthetic test model and are marked as such.</p>';
   }
@@ -187,7 +200,7 @@
   function riskBody() {
     var rows = [
       ['Asset value (AV)', 'Up to the whole principal on each use: USD 893.9M in the Revlon replay, USD 310M on LN-1004 today', 'Same. PCAP does not change what is at stake'],
-      ['Exposure factor (EF)', 'Up to 1.0, a completed wire cannot be recalled. About 0.56 in 2020, when about USD 504M was not returned', 'Same once money has left the bank'],
+      ['Exposure factor (EF)', 'Up to 1.0 once the money has left the bank. About 0.56 in 2020, when about USD 504M was not returned', 'Same once money has left the bank'],
       ['Annual rate of occurrence (ARO)', 'Low: rare, but every roll-up uses this path', 'Same'],
       ['Control deficiency (CD)', 'Near 1.0: three fields set by hand, and the approvals checked that they were set, not what they did', 'Low: R-04 holds a missing field, R-02 holds unscheduled principal, R-01 checks the schedule, R-07 re-key, M5 same-day reconciliation']
     ];
@@ -206,14 +219,22 @@
   }
 
   function syntheticBody() {
+    var r = syn(), s = r.summary, x = est(), sw = E.REFERENCE_SWEEP;
+    var cls = {};
+    r.byClass.forEach(function (c) { cls[c.cls] = c; });
+    var teams = r.r08.slice().sort(function (a, b) { return b.score - a.score; });
+    var rubber = teams.filter(function (t) { return t.team === 'Citi Approvers TPA'; })[0] || teams[0];
+    var others = teams.filter(function (t) { return t !== rubber; });
     var items = [
-      'Seed 4234, 500 payments, 25 injected errors (5%), 475 clean payments of which 5 read a stale schedule line, business days 1 to 30 Sep 2026. The seed was fixed before any results were known. Run fingerprint f5f23476.',
-      'Why 88% and not 90% stopped before release: the three misses are slips of under USD 500, inside the R-01 tolerance by design, released at Tier 1. M5\'s same-day reconciliation found all three, so nothing was missed entirely. Tightening the tolerance would catch them but raise false alarms.',
-      'False alarms: all 5 were R-01 on a stale schedule line, all at Tier 2, all released after the approver\'s blind re-key matched. None was held at Tier 3. Another 64 clean override payments went to Tier 2 by policy without any rule firing, which adds time but is not counted as a false alarm.',
-      'Added time (model estimate): median approver time added is 7.2 s at Tier 1 and 41.1 s at Tiers 2 and 3, mean 13.2 s over all payments. Tier 3 holds then wait a median 10.2 min for Operational Risk. These are assumptions, not a timed walk-through.',
-      'About 82% of payments are Tier 1, not 95%. Override payments are Tier 2 by policy, so about one clean payment in seven still gets the re-key. Lowering that is a control decision for the team.',
-      'R-08: the simulated rubber-stamp team (Citi Approvers TPA) scored 75 (red). The other two teams scored 5 and 7 (green).',
-      'Across seeds 1 to 50: 1,138 of 1,250 injected errors stopped before release (91.0% pooled), every Tier 3, gate and Tier 2 error stopped, none missed, false alarms 1.0%, and the Revlon replay passed every time.'
+      'Seed 4234, ' + s.n + ' payments, ' + s.errorCount + ' injected errors (' + pct0(s.errorCount / s.n) + '), ' + s.cleanCount + ' clean payments of which ' + s.staleCount + ' read a stale schedule line, business days ' + U.fmtDate(r.window.from) + ' to ' + U.fmtDate(r.window.to) + '. The seed was fixed before any results were known. Run fingerprint ' + r.fingerprint + '.',
+      'What it shows: the rules work as built, on mistakes we designed. It is not evidence that PCAP works on real payments. About 1 in 10 planted mistakes are tiny slips meant to get through, so the stop rate depends on the mix we chose.',
+      'Tier 3 errors stopped: ' + cls.T3.stopped + ' of ' + cls.T3.count + '. All errors stopped before release: ' + s.detection.stoppedBeforeRelease + ' of ' + s.errorCount + ' (' + pct1(s.detection.rateBeforeRelease) + '). The ' + s.detection.foundAfterRelease + ' misses are slips of under USD 500, inside the R-01 tolerance by design, released at Tier 1 and found the same day by M5\'s reconciliation, so nothing was missed entirely. Tightening the tolerance would catch them but raise false alarms.',
+      'Stopped payments: ' + x.tier3 + ' (' + pct1(x.tier3 / x.n) + ' of payments). ' + s.time.stoppedBeforeApprover + ' were stopped when they were keyed, so they never reached a checker or an approver. The model assumes each one is referred to Operational Risk, a median ' + sec1(s.time.medianHoldMin) + ' minutes each, which is an upper bound.',
+      'False alarms: ' + s.falseAlarms.count + ' of ' + s.cleanCount + ' (' + pct1(s.falseAlarms.rate) + '), all R-01 on a stale schedule line, all at Tier 2, all released after the approver\'s blind re-key matched. None was stopped. Another ' + s.policyTier2Clean + ' correct payments went to Tier 2 by policy, because they use a registered workaround or send principal out of the bank, without any rule firing. That adds time but is not counted as a false alarm.',
+      'Added time (model estimate): median approver time added is ' + sec1(x.tier1MedianSec) + ' s at Tier 1 and ' + sec1(x.tier23MedianSec) + ' s at Tiers 2 and 3, a mean of ' + sec1(x.meanSec) + ' s per payment, about ' + x.approverHoursPerMonth + ' approver hours a month, plus about ' + x.opRiskHoursPerMonth + ' Operational Risk hours. These are assumptions, not a timed walk-through.',
+      'About ' + pct0(x.tier1Share) + ' of payments are Tier 1 (' + x.tier1 + ' of ' + x.n + '), not 95%. Every payment that uses a registered workaround or sends principal out of the bank is at least Tier 2 by policy. Lowering that is a control decision for the team.',
+      'R-08: the simulated rubber-stamp team (' + rubber.team + ') scored ' + rubber.score + ' (' + rubber.rag + '). The other two teams scored ' + others.map(function (t) { return t.score; }).join(' and ') + ' (' + others.map(function (t) { return t.rag; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' and ') + '). The synthetic test does not model reviewer pairs.',
+      'Across seeds 1 to 50: ' + U.fmtInt(sw.stopped) + ' of ' + U.fmtInt(sw.errors) + ' injected errors stopped before release (' + pct1(sw.stopped / sw.errors) + ' pooled, lowest ' + pct0(sw.rateMin) + ', median ' + pct0(sw.rateMedian) + ', highest ' + pct0(sw.rateMax) + ' per seed), every Tier 3, gate and Tier 2 error stopped, ' + sw.classes.BELOW.stopped + ' of the ' + sw.classes.BELOW.count + ' tiny slips stopped too and the other ' + sw.classes.BELOW.foundAfter + ' found the same day, none missed, false alarms ' + pct1(sw.falseAlarms / sw.clean) + ' with none stopped, and the Revlon replay passed every time.'
     ];
     return '<ul class="lines-list">' + items.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul><p><a href="#/synthetic">Open Test results</a> to run it yourself.</p>';
   }
@@ -221,6 +242,7 @@
   function limitsBody() {
     var items = [
       'Synthetic data only. Every person, loan and amount is invented. Results show that PCAP catches the errors we imagined, not that it would catch the next real one.',
+      'For a Tier 1 payment the approver reads one sentence and clicks once, so the automated checks, R-01 against the loan schedule and R-02 against unscheduled principal, are what protect those payments. A wrong schedule line with a similar amount would get through.',
       'Not connected to Flexcube or any bank system. The Flexcube-style screen is a simulation and the consequence engine models only the FRONT, FUND and PRINCIPAL wash-account rule.',
       'Browser-only storage. State lives in one browser. There is no server, no shared data between users and no audit-grade storage.',
       'No login or access control. Anyone can switch roles. In production, approvers would not see the event log or the agent notice inside PCAP.',
@@ -274,7 +296,7 @@
       sec('tiers', 'Tiers 1 to 3', 'Routine, Needs a closer look, Stopped', tiersBody()) +
       sec('risk', 'WA-01 in the L5 risk model', 'Risk = AV x EF x ARO x CD (report 3.3.2)', riskBody()) +
       sec('cadence', 'Reporting cadence', 'Daily, monthly, quarterly and on request (report 5.5)', cadenceBody()) +
-      sec('synthetic', 'Synthetic test notes', 'Seed, results against 5.8, why 88%, false alarms, added time', syntheticBody()) +
+      sec('synthetic', 'Synthetic test notes', 'Seed, what it shows, results against 5.8, false alarms, added time', syntheticBody()) +
       sec('limits', 'Limitations', 'What the prototype does not show', limitsBody()) +
       sec('demo', 'Manual demo path (for the video)', 'Twelve steps with a Go button each', demoBody()) +
       sec('good', 'Good to know', 'Reset, roles, keys, theme, report codes, downloads', goodBody()) +

@@ -37,7 +37,7 @@
       '<div class="case-row is-sent"><div class="case-top"><span class="case-k">Actually sent</span><span class="case-v">USD 894M</span><span class="case-what">of principal</span></div>' +
       '<div class="case-bar"><span style="width:100%"></span></div></div>' +
       '<p class="case-x">About 115 times what was due.</p>' +
-      '<p class="case-who"><strong>Three people approved it.</strong> None of their screens showed what it would really do.</p>' +
+      '<p class="case-who"><strong>Three people approved it.</strong> None of their screens showed, before release, what it would really do.</p>' +
       '</figure>';
   }
 

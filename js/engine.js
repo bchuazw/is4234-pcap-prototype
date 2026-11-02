@@ -1554,6 +1554,14 @@
     return { step: step, finish: finish, done: function () { return next > to; }, seed: function () { return next; }, from: from, to: to };
   }
 
+  /* Seeds 1 to 50 with the default settings, as the About page and the README quote them. The 50-seed run takes about a
+     second, so the About page reads these figures, and a unit test checks they still equal a fresh runSeedSweep. */
+  var REFERENCE_SWEEP = {
+    from: 1, to: 50, seeds: 50, errors: 1250, stopped: 1160, rateMin: 0.88, rateMedian: 0.92, rateMax: 1,
+    foundAfter: 90, missed: 0, clean: 23750, falseAlarms: 239, falseAlarmsHeld: 0, replayFails: 0,
+    classes: { T3: { count: 748, stopped: 748, foundAfter: 0 }, GATE: { count: 250, stopped: 250, foundAfter: 0 }, T2: { count: 130, stopped: 130, foundAfter: 0 }, BELOW: { count: 122, stopped: 32, foundAfter: 90 } }
+  };
+
   /* Run many seeds and pool the results, to show how much one seed's numbers depend on the draw. */
   function runSeedSweep(opts) {
     var sw = createSeedSweep(opts);
@@ -1742,6 +1750,7 @@
     runSyntheticTest: runSyntheticTest,
     createSeedSweep: createSeedSweep,
     runSeedSweep: runSeedSweep,
+    REFERENCE_SWEEP: REFERENCE_SWEEP,
     // cost and value per user
     VALUE_ASSUMPTIONS: VALUE_ASSUMPTIONS,
     valueEstimate: valueEstimate,

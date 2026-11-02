@@ -70,6 +70,7 @@
       '<span class="muted small">Run ' + U.esc(String(r.summary.seed)) + ' fingerprint <span class="mono">' + U.esc(r.fingerprint) + '</span>. The same seed always gives the same batch and the same numbers.</span></div></form>';
 
     var targets = '<div class="card"><div class="card-head"><h2>Did PCAP meet our targets? ' + U.codeTag('report 5.8') + '</h2><span class="muted small">' + s.n + ' made-up payments, ' + s.errorCount + ' with a planted mistake, ' + s.cleanCount + ' correct (' + s.staleCount + ' read an out-of-date schedule line), business days ' + U.esc(U.fmtDate(r.window.from)) + ' to ' + U.esc(U.fmtDate(r.window.to)) + '</span></div>' +
+      '<p class="what-it-shows">' + U.icon('info') + '<span><strong>What this shows:</strong> the rules work as built, on mistakes we designed. It is not evidence that PCAP works on real payments. About 1 in 10 planted mistakes are tiny slips meant to get through, so the stop rate depends on the mix we chose.</span></p>' +
       '<div class="targets">' + s.targets.map(metChip).join('') + '</div>' +
       '<div class="tiles">' +
       tile('Stopped before release', s.detection.stoppedBeforeRelease + ' of ' + s.errorCount, pct(s.detection.rateBeforeRelease) + ' of planted mistakes') +
@@ -77,15 +78,15 @@
       tile('Missed entirely', String(s.detection.missed), 'not stopped and not found the same day', s.detection.missed ? 'red' : 'green') +
       tile('False alarms', s.falseAlarms.count + ' of ' + s.cleanCount, pct(s.falseAlarms.rate) + (s.falseAlarms.heldAtTier3 ? ', ' + s.falseAlarms.heldAtTier3 + ' stopped' : ', none stopped')) +
       tile('Approver time added', U.fmtSec(s.time.medianTier23Sec), 'when a payment needs a closer look. Routine ' + U.fmtSec(s.time.medianTier1Sec) + '. Average over all ' + U.fmtSec(s.time.meanAllSec) + '. Model estimate.') +
-      tile('Wait for Op Risk', s.time.medianHoldMin == null ? 'n/a' : s.time.medianHoldMin + ' min', 'on a stopped payment, median, model estimate') +
+      tile('Stopped payments', String(s.tiers.clean[3] + s.tiers.error[3]), s.time.stoppedBeforeApprover + ' stopped when keyed, so no approver saw them. About ' + (s.time.medianHoldMin == null ? 'n/a' : Math.round(s.time.medianHoldMin) + ' min') + ' of Operational Risk time each, model estimate.') +
       '</div>' +
       '<p class="muted small">Correct workaround payments that get a closer look by policy, with no rule firing: ' + s.policyTier2Clean + '. These are not counted as false alarms but they do add time. Measured in this browser so far: ' + (meas.n ? meas.n + ' closer-look reviews, median ' + U.fmtSec(meas.median) + ' on screen.' : 'none yet.') + '</p></div>';
 
     var replay = r.replay;
     var replayCard = '<div class="card replay ' + (replay.pass ? 'pass' : 'fail') + '"><div class="card-head"><h2>The 2020 payment as a test</h2>' + (replay.pass ? U.ragChip('green', 'Pass') : U.ragChip('red', 'Fail')) + '</div>' +
-      '<p>Passes only if PCAP stops the 2020 payment and shows the approver the principal that would leave. <span class="code-tag">' + U.esc(E.REPLAY.passRule) + '</span></p>' +
-      '<div class="replay-row"><div>' + U.tierBadge(replay.tier, { big: true }) + '</div><div><span class="code-tag">Rules fired: ' + replay.hits.map(function (h) { return U.ruleChip(h, 'fire'); }).join(' ') + '</span><div class="small muted">The approver types USD 7,820,000 of interest: ' + U.esc({ fire: 'it does not match, twice, so PCAP stops it', pass: 'it matches', retry: 'it does not match' }[replay.rekey] || replay.rekey) + '.</div></div></div>' +
-      '<div class="statement st-tier-3"><div class="st-label">' + U.moduleChip('M2') + ' What the approver sees</div>' + replay.statement.map(function (x, i) { return '<p class="' + (i === 0 ? 'st-lead' : '') + '">' + U.emphasise(x) + '</p>'; }).join('') + '</div></div>';
+      '<p>Passes only if PCAP stops the 2020 payment when it is keyed and shows the principal that would leave. <span class="code-tag">' + U.esc(E.REPLAY.passRule) + '</span></p>' +
+      '<div class="replay-row"><div>' + U.tierBadge(replay.tier, { big: true }) + '</div><div><span class="code-tag">Rules fired: ' + replay.hits.map(function (h) { return U.ruleChip(h, 'fire'); }).join(' ') + '</span><div class="small muted">It never reaches an approver. As a backstop, an approver who typed USD 7,820,000 of interest ' + U.esc({ fire: 'would not match, twice, so PCAP would stop it there too', pass: 'would match', retry: 'would not match' }[replay.rekey] || replay.rekey) + '.</div></div></div>' +
+      '<div class="statement st-tier-3"><div class="st-label">' + U.moduleChip('M2') + ' What the maker sees before it can go anywhere</div>' + replay.statement.map(function (x, i) { return '<p class="' + (i === 0 ? 'st-lead' : '') + '">' + U.emphasise(x) + '</p>'; }).join('') + '</div></div>';
 
     var byType = U.fold('Each kind of mistake', 'What PCAP did with each kind of planted mistake, through the same rules as Payments', '<div class="table-wrap"><table class="table"><thead><tr><th>Planted mistake</th><th>Size</th><th class="num">Count</th><th class="num">Stopped before release</th><th class="num">Found same day</th><th class="num">Missed</th><th class="code-col">Rules that fired</th><th class="num">Routine</th><th class="num">Closer look</th><th class="num">Stopped</th><th class="num">Wrong approver</th></tr></thead><tbody>' +
       r.byType.map(function (t) {
@@ -111,7 +112,7 @@
 
     var fa = '<div class="card"><div class="card-head"><h2>False alarms</h2><span class="muted small">Correct payments where PCAP raised a flag</span></div>' +
       (r.falseAlarmRecords.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Why</th><th class="code-col">Rules</th><th>PCAP found</th><th>Outcome</th></tr></thead><tbody>' +
-        r.falseAlarmRecords.map(function (x) { return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + (x.stale ? 'Out-of-date schedule line' : 'Other') + '</td><td class="code-col">' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + '</td><td>' + U.tierBadge(x.finalTier, { noLabel: true }) + '</td><td class="small">' + U.esc(x.outcome === 'RELEASED' ? 'Released after the approver\'s figure matched' : x.outcome) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">None.</p>') +
+        r.falseAlarmRecords.map(function (x) { return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + (x.stale ? 'Out-of-date schedule line' : 'Other') + '</td><td class="code-col">' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + '</td><td>' + U.tierBadge(x.finalTier, { noLabel: true }) + '</td><td class="small">' + U.esc(x.outcome === 'RELEASED' ? 'Released after the approver\'s figure matched' : x.outcome === 'HELD_RELEASED' ? 'Stopped, signed off by Op Risk, released by the Head of Loan Ops' : x.outcome) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="empty">None.</p>') +
       '<p class="muted small">PCAP is only as good as the loan schedules it reads, so an out-of-date schedule line shows up as a difference. ' + U.codeTag('report 5.9, limitation one') + '</p></div>';
 
     var r08 = U.fold('Rubber-stamp score on the made-up approvers', 'One made-up team (Citi Approvers TPA) is given careless habits', '<div class="table-wrap"><table class="table"><thead><tr><th>Team</th><th class="num">Closer-look reviews</th><th class="num">Quick looks</th><th class="num">Wrong first figures</th><th class="num">Quick approvals after a warning</th><th class="num">Score</th></tr></thead><tbody>' +
@@ -120,13 +121,14 @@
     var errs = '<div class="card"><details><summary><h2>All ' + r.errorRecords.length + ' planted mistakes</h2><span class="muted small">Open to see each one</span></summary><div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Mistake</th><th>Detail</th><th class="code-col">Rules</th><th>PCAP found</th><th>Outcome</th></tr></thead><tbody>' +
       r.errorRecords.map(function (x) {
         var t = E.ERROR_TYPES.filter(function (y) { return y.id === x.error; })[0];
-        var out = { GATE_BLOCK: 'Wrong approver blocked', HELD_REJECTED: 'Stopped, rejected by Op Risk', HELD_RELEASED: 'Stopped, released by Op Risk', RELEASED: Math.abs(x.reconBreak) >= 0.01 ? 'Released, found same day: ' + E.fmtUSD(x.reconBreak) : 'Released' }[x.outcome];
+        var out = { GATE_BLOCK: 'Wrong approver blocked', HELD_REJECTED: (x.stage === 'maker' ? 'Stopped when keyed' : 'Stopped at the approver') + ', returned by Op Risk as a real error', HELD_RELEASED: 'Stopped, signed off by Op Risk, released by the Head of Loan Ops', RELEASED: Math.abs(x.reconBreak) >= 0.01 ? 'Released, found same day: ' + E.fmtUSD(x.reconBreak) : 'Released' }[x.outcome];
         return '<tr><td class="mono">' + U.esc(x.id) + '</td><td>' + U.esc(t ? t.label : x.error) + '</td><td class="small">' + U.esc(x.variant || '') + '</td><td class="code-col">' + x.fired.map(function (k) { return U.ruleChip(k, 'fire'); }).join(' ') + (x.gateOpen ? '' : ' <span class="chip gate gate-closed small">gate</span>') + '</td><td>' + (x.gateOpen ? U.tierBadge(x.finalTier, { noLabel: true }) : '') + '</td><td class="small">' + U.esc(out) + '</td></tr>';
       }).join('') + '</tbody></table></div></details></div>';
 
     var assumptions = U.fold('Assumptions behind these numbers', 'How the made-up payments and approver times were generated', '<ul class="lines-list">' + r.assumptions.map(function (a) { return '<li>' + U.esc(a) + '</li>'; }).join('') +
       '<li>Approver time model (seconds): normal teams read a routine payment in 5 to 15, a closer-look payment in 10 to 30, type their own figure in 15 to 40, confirm in 3 to 8, retry in 20 to 40. The careless team reads in 1 to 6.</li>' +
-      '<li>Made-up tests only show that PCAP catches mistakes we imagined. The next real one may look different. A timed walk-through with volunteer approvers is still needed for added time.</li></ul>');
+      '<li>Made-up tests only show that PCAP catches mistakes we imagined. The next real one may look different. A timed walk-through with volunteer approvers is still needed for added time.</li>' +
+      '<li>About 1 in 10 planted mistakes are tiny slips under USD 500, inside the tolerance on purpose. A mix with more of them would lower the stop rate, and fewer would raise it.</li></ul>');
 
     el.innerHTML = '<div class="page-head"><h1>Test results ' + U.codeTag('report 5.8') + '</h1>' + PCAP.views.nowLine('synthetic', st().role) + '</div>' +
       targets + '<div class="grid-2">' + replayCard + classCard + '</div>' + fa + byType + sweepCard() + cov + r08 + assumptions + errs +
