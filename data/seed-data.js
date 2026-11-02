@@ -19,6 +19,9 @@
     users: [
       { id: 'U-MK1', name: 'Priya S.', employer: 'Wipro', inHouse: false, team: 'Wipro Loan Ops A', title: 'Payment maker (outsourced)', roles: ['maker'], reportsTo: 'U-SUP1', approvalLimit: 0, certs: [] },
       { id: 'U-CK1', name: 'Kiran N.', employer: 'Wipro', inHouse: false, team: 'Wipro Loan Ops A', title: 'Payment checker (outsourced)', roles: ['checker'], reportsTo: 'U-SUP1', approvalLimit: 0, certs: [] },
+      /* Two more makers, so the approval history has more than one maker (R-08 concentrated reviewer pairs). Not personas. */
+      { id: 'U-MK2', name: 'Arjun D.', employer: 'Wipro', inHouse: false, team: 'Wipro Loan Ops A', title: 'Payment maker (outsourced)', roles: ['maker'], reportsTo: 'U-SUP1', approvalLimit: 0, certs: [] },
+      { id: 'U-MK3', name: 'Wei Ling T.', employer: 'Wipro', inHouse: false, team: 'Wipro Loan Ops A', title: 'Payment maker (outsourced)', roles: ['maker'], reportsTo: 'U-SUP1', approvalLimit: 0, certs: [] },
       { id: 'U-SUP1', name: 'Sunil I.', employer: 'Wipro', inHouse: false, team: 'Wipro Loan Ops A', title: 'Team manager (outsourced)', roles: ['checker', 'approver'], reportsTo: null, approvalLimit: 25000000, certs: [{ type: 'WA-01', validOffset: 140 }] },
       { id: 'U-AP1', name: 'Lena B.', employer: 'Citi', inHouse: true, team: 'Citi Approvers DE', title: 'Senior manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: 210 }] },
       { id: 'U-AP2', name: 'Marco O.', employer: 'Citi', inHouse: true, team: 'Citi Approvers NY', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: -24 }] },

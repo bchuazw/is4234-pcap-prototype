@@ -827,6 +827,23 @@
 
   /* ------------------------------------------------------------ M4, M6, synthetic test */
 
+  /* R-08 concentrated reviewer pairs this week: approvals from the M4 samples (team = approver team), checks from the
+     event log (team = the outsourced provider as a whole, never a person by default). */
+  function reviewerPairs() {
+    var m4 = S.state.m4;
+    var ws = m4.weekStart;
+    var rows = m4.current.filter(function (s) {
+      if (s.week) return s.week === ws;
+      return s.ts && U.localDate(new Date(s.ts)) >= ws;
+    }).map(function (s) { return { team: s.team, role: 'approver', reviewerId: s.approverId, makerId: s.makerId }; });
+    S.state.events.forEach(function (e) {
+      if (e.type !== 'CHECKED' || !(e.businessDate >= ws)) return;
+      var p = payment(e.paymentId), u = user(e.actorId);
+      if (p && u) rows.push({ team: u.employer, role: 'checker', reviewerId: e.actorId, makerId: p.makerId });
+    });
+    return E.reviewerPairs(rows);
+  }
+
   function logIndividualView(actorId, reason) {
     if (roleOf(actorId) !== 'oprisk') throw new Error('Only Operational Risk can open the named view.');
     reason = String(reason || '').trim();
@@ -900,6 +917,14 @@
         }
       });
     }
+    /* Which maker's payment each review this week was, for R-08 concentrated reviewer pairs. A separate random stream,
+       so the scores above do not move. In Team TPA one approver (Grace T.) handles most of one maker's payments. */
+    var pr = E.createRng('pcap-m4-pairs');
+    current.forEach(function (x) {
+      var others = ['U-MK1', 'U-MK3'];
+      if (x.team === 'Citi Approvers TPA') x.makerId = x.approverId === 'U-AP4' ? (pr.chance(0.8) ? 'U-MK2' : pr.pick(others)) : (pr.chance(0.08) ? 'U-MK2' : pr.pick(others));
+      else x.makerId = pr.chance(1 / 3) ? 'U-MK2' : pr.pick(others);
+    });
     return { weekStart: monday, weeks: weeks, current: current };
   }
 
@@ -1142,6 +1167,7 @@
     controlHealth: controlHealth,
     runReconciliation: runReconciliation,
     runRegressionTest: runRegressionTest,
+    reviewerPairs: reviewerPairs,
     logIndividualView: logIndividualView,
     logExport: logExport,
     recordSyntheticRun: recordSyntheticRun,

@@ -100,10 +100,11 @@
     var isOpRisk = st().role === 'oprisk';
 
     var flaggedTeams = teams.filter(function (t) { return t.reportable && t.rag !== 'green'; }).map(function (t) { return t.team.replace('Citi Approvers ', 'Team '); });
+    var pairs = store.reviewerPairs();
     var html = '<div class="page-head"><h1>Approval habits ' + U.moduleChip('M4') + '</h1>' + PCAP.views.nowLine('analytics', st().role, { teams: flaggedTeams.join(' and ') }) + '</div>' +
       '<div class="banner privacy">' + U.icon('shield') + '<div><strong>Team level only.</strong> A team needs at least ' + E.DEFAULT_CONFIG.m4MinTeam + ' approvers to get a score, so a score never points at one person. It never blocks a payment.' +
       '<details class="more"><summary>More about privacy</summary><p class="small">Only three signals, all from approvals of payments that needed a closer look, nothing else about the person. Named people only by Operational Risk, with a reason that is logged. The purpose is payment control, not productivity, and the score never decides discipline on its own. Staff are told, and the Data Protection Officer is consulted before launch (PDPA purpose and notification).</p></details></div></div>' +
-      '<div class="tiles">' + followTile(teams) +
+      '<div class="tiles">' + followTile(teams) + pairsTile(pairs, teams) +
       tile('Median time reading a payment that needed a closer look', all.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(all.medianDwellTier23Sec), all.nTier23 + ' reviews this week, all teams') +
       tile('Wrong first figure', U.fmtPctPlain(all.mismatchRate), all.nSlips + ' wrong first figures and ' + all.nCatches + ' mistakes caught in ' + all.nRekeys + ' typed checks') +
       tile('Approved within 5 s of a warning', U.fmtPctPlain(all.fastApproveShare), 'of ' + all.nTier2Approvals + ' approvals after a closer-look warning') +
@@ -117,12 +118,13 @@
       C.columns({ bins: bins, marker: { index: 4, label: 'Fast look: under 8 s' }, ariaLabel: 'Histogram of seconds spent on the consequence screen' }) +
       '<p class="muted small">Seconds on the screen. A long look can still be a careless one, so this is one signal among three, never a pass mark.</p></div>' +
       '</div>' +
-      U.fold('This week by team, as a table', 'The numbers behind the score chart', '<div class="table-wrap"><table class="table"><thead><tr><th>Team</th><th class="num">Closer-look reviews</th><th class="num">Median time</th><th class="num">Quick looks</th><th class="num">Wrong first figures</th><th class="num">Mistakes caught</th><th class="num">Quick approvals after a warning</th><th class="num">Score</th><th>Status</th></tr></thead><tbody>' +
+      U.fold('This week by team, as a table', 'The numbers behind the score chart', '<div class="table-wrap"><table class="table"><thead><tr><th>Team</th><th class="num">Closer-look reviews</th><th class="num">Median time</th><th class="num">Quick looks</th><th class="num">Wrong first figures</th><th class="num">Mistakes caught</th><th class="num">Quick approvals after a warning</th><th class="num">Score</th><th>Status</th><th class="num">Reviewer pairs to sample</th></tr></thead><tbody>' +
       teams.map(function (t) {
-        if (!t.reportable) return '<tr><td>' + U.esc(t.team) + '</td><td colspan="8" class="muted small">Only ' + t.size + ' approver' + (t.size === 1 ? '' : 's') + ', so no team score is shown (it would point at one person).</td></tr>';
-        return '<tr><td>' + U.esc(t.team) + ' <span class="small muted">(' + t.size + ' approvers)</span></td><td class="num">' + t.nTier23 + '</td><td class="num">' + U.esc(t.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(t.medianDwellTier23Sec)) + '</td><td class="num">' + U.fmtPctPlain(t.fastLookShare, 0) + '</td><td class="num">' + U.fmtPctPlain(t.mismatchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.catchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.fastApproveShare, 0) + '</td><td class="num"><strong>' + t.score + '</strong> <span class="small muted">(' + t.parts.fastLook + ' + ' + t.parts.mismatch + ' + ' + t.parts.fastApprove + ')</span></td><td>' + U.ragChip(t.rag) + '</td></tr>';
+        if (!t.reportable) return '<tr><td>' + U.esc(t.team) + '</td><td colspan="9" class="muted small">Only ' + t.size + ' approver' + (t.size === 1 ? '' : 's') + ', so no team figure is shown (it would point at one person).</td></tr>';
+        var np = pairs.byTeam[t.team] || 0;
+        return '<tr><td>' + U.esc(t.team) + ' <span class="small muted">(' + t.size + ' approvers)</span></td><td class="num">' + t.nTier23 + '</td><td class="num">' + U.esc(t.medianDwellTier23Sec == null ? 'n/a' : U.fmtSec(t.medianDwellTier23Sec)) + '</td><td class="num">' + U.fmtPctPlain(t.fastLookShare, 0) + '</td><td class="num">' + U.fmtPctPlain(t.mismatchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.catchRate, 0) + '</td><td class="num">' + U.fmtPctPlain(t.fastApproveShare, 0) + '</td><td class="num"><strong>' + t.score + '</strong> <span class="small muted">(' + t.parts.fastLook + ' + ' + t.parts.mismatch + ' + ' + t.parts.fastApprove + ')</span></td><td>' + U.ragChip(t.rag) + '</td><td class="num">' + (np ? '<strong class="warn-text">' + np + '</strong>' : '0') + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
-      '<p class="muted small">Score = 40 x share of quick looks (under 8 s) + 30 x (wrong first figures / 20%, capped at 1) + 30 x share of approvals within 5 s of a warning. A caught mistake (both figures disagree with the payment, so it is stopped) is the check working and does not count against the approver. Earlier weeks are made up. Approvals you make in this browser are added to this week.</p>', { id: 'team-table' }) +
+      '<p class="muted small">Score = 40 x share of quick looks (under 8 s) + 30 x (wrong first figures / 20%, capped at 1) + 30 x share of approvals within 5 s of a warning. A caught mistake (both figures disagree with the payment, so it is stopped) is the check working and does not count against the approver. Reviewer pairs to sample are counted apart from the score: one approver handled at least ' + Math.round(E.DEFAULT_CONFIG.pairShare * 100) + '% of one maker\'s payments this week, once that maker has at least ' + E.DEFAULT_CONFIG.pairMinReviews + '. Earlier weeks are made up. Approvals you make in this browser are added to this week.</p>', { id: 'team-table' }) +
       '<div class="grid-2">' +
       U.fold('Measured in this browser', 'Real time on screen for the approvals made here', (
       live.length ? '<div class="table-wrap"><table class="table"><thead><tr><th>Payment</th><th>Team</th><th>PCAP found</th><th class="num">Time on screen</th><th>Typed check</th><th>Decision</th></tr></thead><tbody>' +
@@ -139,10 +141,10 @@
       '</div><p class="muted small">Operational Risk assesses stopped payments but cannot release one, and it owns this screen, so it cannot be the only check on its own sign-offs. These figures also go to the Board, and Internal Audit reviews every risk sign-off on Board and audit.</p>') +
       '</div>' +
       '<div class="card" id="provider-card"><div class="card-head"><h2>Outsourced provider: makers and checkers</h2><span class="muted small">The service as a whole, never by person ' + U.codeTag('MAS Notice 658, Outsourcing Guidelines 3.1.1') + '</span></div>' +
-      (vendor.length ? providerTable(vendor) : '<p class="empty">No outsourced keying or checks yet.</p>') +
+      (vendor.length ? providerTable(vendor) : '<p class="empty">No outsourced keying or checks yet.</p>') + checkerPairsLine(pairs) +
       '<p class="muted small">The work is outsourced, the accountability is not. In 2020 the outsourced checker passed the payment on. Here a stopped payment cannot be passed on: the provider\'s staff return it or refer it to Operational Risk, and both are counted for the provider as a whole in the monthly provider review. The bank watches the service and the provider manages its own staff, so nothing here names a person. In this demo one maker and one checker do most of the work.</p></div>' +
       '<div class="card"><div class="card-head"><h2>Named view</h2><span class="muted small">Restricted: only payments that needed a closer look or were stopped</span></div>' +
-      (individualOpen && isOpRisk ? individualTable(cur) : '<p>Names are hidden by default. ' + (isOpRisk ? 'Open them only for a control reason. Your reason is written to the activity log.' : 'Only Operational Risk can open this view.') + '</p>' +
+      (individualOpen && isOpRisk ? individualTable(cur, pairs) : '<p>Names are hidden by default, for the scores and for the reviewer pairs. ' + (isOpRisk ? 'Open them only for a control reason. Your reason is written to the activity log.' : 'Only Operational Risk can open this view.') + '</p>' +
         '<button class="btn" data-act="individual"' + (isOpRisk ? '' : ' disabled') + '>' + U.icon('eye') + ' Open the named view (logged)</button>') +
       '</div>';
 
@@ -168,7 +170,25 @@
     };
   }
 
-  function individualTable(cur) {
+  /* R-08 concentrated reviewer pairs: a count per team, never names, unless the named view is opened with a logged reason. */
+  function pairsTile(pairs, teams) {
+    var shown = teams.filter(function (t) { return t.reportable && pairs.byTeam[t.team]; });
+    var n = shown.reduce(function (s, t) { return s + pairs.byTeam[t.team]; }, 0);
+    var sub = n
+      ? shown.map(function (t) { return t.team.replace('Citi Approvers ', 'Team ') + ': ' + pairs.byTeam[t.team]; }).join(', ') + '. One approver handled ' + Math.round(E.DEFAULT_CONFIG.pairShare * 100) + '% or more of one maker\'s payments this week. Sample them. Not part of the score.'
+      : 'No approver handled ' + Math.round(E.DEFAULT_CONFIG.pairShare * 100) + '% or more of one maker\'s payments this week.';
+    return tile('Reviewer pairs to sample', String(n), sub, n ? 'amber' : 'green').replace('<div class="tile">', '<div class="tile" id="r08-pairs">');
+  }
+
+  function pairsTable(pairs) {
+    var list = pairs.pairs.filter(function (p) { return p.role === 'approver'; });
+    if (!list.length) return '<p class="muted small">No concentrated reviewer pairs this week.</p>';
+    return '<h3>Reviewer pairs to sample</h3><div class="table-wrap"><table class="table"><thead><tr><th>Approver</th><th>Team</th><th>Maker</th><th class="num">Reviews</th><th class="num">Share of the maker\'s payments</th></tr></thead><tbody>' +
+      list.map(function (p) { return '<tr><td>' + U.esc(store.userName(p.reviewerId)) + '</td><td>' + U.esc(p.team) + '</td><td>' + U.esc(store.userName(p.makerId)) + '</td><td class="num">' + p.reviews + ' of ' + p.makerReviews + '</td><td class="num">' + U.fmtPctPlain(p.share, 0) + '</td></tr>'; }).join('') +
+      '</tbody></table></div><p class="muted small">A pair is a signal for second-line sampling, not proof of a problem. It can mean familiarity or one person covering a desk.</p>';
+  }
+
+  function individualTable(cur, pairs) {
     var t23 = cur.filter(function (s) { return s.tier >= 2; });
     var by = {};
     t23.forEach(function (s) { (by[s.approverId] = by[s.approverId] || []).push(s); });
@@ -179,7 +199,7 @@
     }).sort(function (a, b) { return b.s.score - a.s.score; });
     return '<div class="table-wrap"><table class="table"><thead><tr><th>Approver</th><th>Team</th><th class="num">Closer-look reviews</th><th class="num">Median time</th><th class="num">Quick looks</th><th class="num">Wrong first figures</th><th class="num">Score</th></tr></thead><tbody>' +
       rows.map(function (r) { return '<tr><td>' + U.esc(r.name) + '</td><td>' + U.esc(r.team) + '</td><td class="num">' + r.s.nTier23 + '</td><td class="num">' + U.esc(U.fmtSec(r.s.medianDwellTier23Sec)) + '</td><td class="num">' + U.fmtPctPlain(r.s.fastLookShare, 0) + '</td><td class="num">' + r.s.nSlips + '</td><td class="num">' + r.s.score + ' ' + U.ragChip(r.s.rag) + '</td></tr>'; }).join('') +
-      '</tbody></table></div><p class="muted small">Use for coaching and control review, not automatic discipline. Opening this view was recorded in the activity log.</p><button class="btn small" data-act="close-individual">Close the named view</button>';
+      '</tbody></table></div>' + (pairs ? pairsTable(pairs) : '') + '<p class="muted small">Use for coaching and control review, not automatic discipline. Opening this view was recorded in the activity log.</p><button class="btn small" data-act="close-individual">Close the named view</button>';
   }
 
   /* Which teams Operational Risk should follow up this week: the answer, not just the top score. */
@@ -197,21 +217,27 @@
   function vendorView(vendor) {
     var V = PCAP.views.value;
     return '<div class="page-head"><h1>Outsourced provider view</h1>' + PCAP.views.nowLine('analytics', 'vendor') + '</div>' +
-      (V ? V.strip('vendor') : '') + providerCard(vendor) +
+      (V ? V.strip('vendor') : '') + providerCard(vendor, store.reviewerPairs()) +
       '<div class="banner privacy">' + U.icon('shield') + '<span><strong>Provider level only.</strong> You see your own team\'s results as a whole. You do not see Citi\'s approver analytics, and nothing here names a person. Citi monitors the service, and Wipro manages its own staff.</span></div>' +
       '<div class="card"><div class="card-head"><h2>What PCAP asks of your staff</h2></div><ul class="lines-list">' +
       '<li>Makers: one review screen before each payment is submitted. PCAP fills in the next unpaid line of the loan schedule and remembers the checker and approver.</li>' +
       '<li>Checkers: nothing extra on most payments. A payment PCAP stops never reaches them, and one that becomes stopped can only be returned or referred to Operational Risk with a reason.</li>' +
       '<li>What your team gets back: a plain sentence that says what each payment will really do before anyone signs, and a record that shows the check was done.</li></ul></div>';
   }
+  /* Concentrated checker pairs at the provider, as a count only. */
+  function checkerPairsLine(pairs) {
+    var n = pairs.pairs.filter(function (p) { return p.role === 'checker'; }).length;
+    return '<p class="small">Concentrated checker pairs this week (one checker on ' + Math.round(E.DEFAULT_CONFIG.pairShare * 100) + '% or more of one maker\'s payments, at least ' + E.DEFAULT_CONFIG.pairMinReviews + '): <strong>' + n + '</strong>. Counted for the provider, never by name.</p>';
+  }
+
   function providerTable(vendor) {
     return '<div class="table-wrap"><table class="table"><thead><tr><th>Provider</th><th class="num">Payments keyed</th><th class="num">Stopped when keyed</th><th class="num">Checks done</th><th class="num">Returned by the checker</th><th class="num">Stopped payments referred to Op Risk</th></tr></thead><tbody>' +
       vendor.map(function (v) { return '<tr><td>' + U.esc(v.team) + '</td><td class="num">' + v.keyed + '</td><td class="num">' + v.keyedTier3 + '</td><td class="num">' + v.checked + '</td><td class="num">' + v.returned + '</td><td class="num">' + v.referred + '</td></tr>'; }).join('') +
       '</tbody></table></div>';
   }
-  function providerCard(vendor) {
+  function providerCard(vendor, pairs) {
     return '<div class="card" id="provider-card"><div class="card-head"><h2>Outsourced provider: makers and checkers</h2><span class="muted small">Monitoring the outsourced service at provider level</span></div>' +
-      (vendor.length ? providerTable(vendor) : '<p class="empty">No outsourced keying or checks yet.</p>') +
+      (vendor.length ? providerTable(vendor) : '<p class="empty">No outsourced keying or checks yet.</p>') + checkerPairsLine(pairs) +
       '<p class="muted small">All time in this browser. A stopped payment cannot be passed on, so your staff return it or refer it to Operational Risk. Both are counted for the provider as a whole in the monthly provider review.</p></div>';
   }
 

@@ -192,7 +192,7 @@
     release: 'Release decision: only the Head of Loan Ops can release a stopped payment, and only after Operational Risk has signed off the risk. Before the money moves, PCAP checks again that they are the owner named in the sign-off, within their limit and not part of the payment, and runs the rules again.',
     dispensation: 'Dispensation: the date until which the bank accepts a workaround. After that date PCAP stops any payment that uses it.',
     override: 'Workaround: a manual way around a limit of the core system, such as WA-01 for interest-only payments. It can only be used if it is on the workaround list.',
-    r08: 'Rubber-stamp score: a weekly team score from 0 to 100, built from quick looks, wrong first figures and quick approvals after a warning. Team level only, teams of 3 or more. It never blocks a payment.',
+    r08: 'Rubber-stamp score: a weekly team score from 0 to 100, built from quick looks, wrong first figures and quick approvals after a warning. Team level only, teams of 3 or more. Reviewer pairs (one approver on most of one maker\'s payments) are counted beside it. It never blocks a payment.',
     recon: 'Same-day reconciliation: compares what left the bank today with what the loan schedules expected. A difference is called a break.',
     kri: 'A number the Board watches against a limit, shown green, amber or red. The report calls these key risk indicators.',
     evidence: 'Evidence pack: every control event with its time, person, rule and obligation row, exported as JSON and CSV for Internal Audit or a regulator.',

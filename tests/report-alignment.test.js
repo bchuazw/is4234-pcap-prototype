@@ -133,6 +133,39 @@ test('the Head of Loan Ops can decline, and an acceptance from yesterday cannot 
   assert.equal(S2.payment(b.id).status, 'ACCEPTED');
 });
 
+test('R-08 concentrated reviewer pairs: 60% of one maker\'s payments in a team, at least 10, counted apart from the score', () => {
+  const rows = (team, role, maker, counts) => Object.keys(counts).flatMap((rev) => Array.from({ length: counts[rev] }, () => ({ team, role, reviewerId: rev, makerId: maker })));
+  const a = E.reviewerPairs(rows('T1', 'approver', 'M1', { A: 6, B: 2, C: 2 }));
+  assert.equal(a.count, 1, '6 of 10 is 60%: flagged');
+  assert.deepEqual(a.pairs[0], { team: 'T1', role: 'approver', reviewerId: 'A', makerId: 'M1', reviews: 6, makerReviews: 10, share: 0.6 });
+  assert.deepEqual(a.byTeam, { T1: 1 });
+  assert.equal(E.reviewerPairs(rows('T1', 'approver', 'M1', { A: 6, B: 3 })).count, 0, 'only 9 reviews of that maker: too few to judge');
+  assert.equal(E.reviewerPairs(rows('T1', 'approver', 'M1', { A: 5, B: 3, C: 2 })).count, 0, '50% is not concentrated');
+  const mixed = E.reviewerPairs(rows('T1', 'approver', 'M1', { A: 4, B: 3, C: 3 }).concat(rows('T1', 'checker', 'M1', { K: 10 })));
+  assert.equal(mixed.count, 1, 'checkers and approvers are counted separately');
+  assert.equal(mixed.pairs[0].role, 'checker');
+  /* The pair signal is not part of the 40/30/30 score. */
+  const reviews = [{ tier: 2, dwellSec: 20, rekey: 'match', decision: 'approve', makerId: 'M1' }];
+  assert.deepEqual(E.summariseReviews(reviews), E.summariseReviews(reviews.map((r) => Object.assign({}, r, { makerId: 'M2' }))));
+  assert.match(E.RULES['R-08'].logic, /concentrated reviewer pairs/);
+
+  /* The demo shows one flagged pair, in a team big enough to report. */
+  const S = freshStore();
+  const p = S.reviewerPairs();
+  assert.ok(p.count >= 1, 'at least one flagged pair in the demo');
+  const team = p.pairs[0].team;
+  const size = S.st().ctx.users.filter((u) => u.team === team && u.roles.includes('approver')).length;
+  assert.ok(E.teamReportable(size), team + ' has ' + size + ' approvers, so its count can be shown');
+  assert.equal(p.pairs[0].role, 'approver');
+  assert.ok(p.pairs[0].share >= 0.6 && p.pairs[0].makerReviews >= 10);
+  /* Names stay behind the logged named view. */
+  const analytics = fs.readFileSync(path.join(ROOT, 'js', 'views', 'analytics.js'), 'utf8');
+  const tileSrc = analytics.slice(analytics.indexOf('function pairsTile('), analytics.indexOf('function pairsTable('));
+  assert.ok(!/userName/.test(tileSrc), 'the team-level tile never names a person');
+  assert.throws(() => S.logIndividualView('U-OR1', 'short'), /15 characters/, 'the named view needs a logged reason');
+  assert.throws(() => S.logIndividualView('U-AP1', 'Reviewing the pairs before coaching.'), /Only Operational Risk/);
+});
+
 test('no native confirm, prompt or alert is left anywhere: every question uses the in-page dialog', () => {
   const files = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js'), [path.join(ROOT, 'index.html')]);
   const bare = /(^|[^.\w$])(confirm|prompt|alert)\s*\(/m;

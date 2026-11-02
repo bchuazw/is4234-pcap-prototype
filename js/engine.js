@@ -61,6 +61,8 @@
     r08MismatchCap: 0.20,     // R-08: a 20% first-attempt mismatch rate scores the full 30 points
     r08Amber: 25,             // R-08: amber at 25 or more
     r08Red: 50,               // R-08: red at 50 or more
+    pairShare: 0.60,          // R-08 pairs: one reviewer handled at least 60% of one maker's payments that week...
+    pairMinReviews: 10,       // R-08 pairs: ...counted once that maker has at least 10 reviewed payments in the team
     expiringDays: 30,         // R-09: certifications and dispensations expiring within 30 days are amber
     reviewRedDays: 30,        // R-09: register review overdue by more than 30 days is red
     regressionMaxDays: 31,    // R-09: replay regression test must run at least monthly
@@ -102,8 +104,8 @@
       logic: 'At Tier 2 and 3 the approver re-keys the outgoing amount and says whether it is interest, principal or both, without seeing the maker\'s figure or the checker\'s note. PCAP compares both with what it computed.',
       action: 'First mismatch: re-check prompt, logged. Second mismatch: Tier 3 hard stop.' },
     'R-08': { id: 'R-08', name: 'Rubber-stamp score', module: 'M4', obligations: ['O2', 'O5'], screen: 'M4 analytics',
-      logic: 'Weekly team score from 0 to 100. 40 points for fast looks at the consequence screen (under 8 seconds at Tier 2 and 3), 30 for re-key slips (the approver\'s own first figure was wrong, a 20% slip rate scores all 30), 30 for Tier 2 approvals within 5 seconds of the warning. Mismatches that end in an escalation count as catches, not slips.',
-      action: 'Amber at 25, red at 50: second-line review of that team in the monthly report. Never blocks a payment. Team level by default.' },
+      logic: 'Weekly team score from 0 to 100. 40 points for fast looks at the consequence screen (under 8 seconds at Tier 2 and 3), 30 for re-key slips (the approver\'s own first figure was wrong, a 20% slip rate scores all 30), 30 for Tier 2 approvals within 5 seconds of the warning. Mismatches that end in an escalation count as catches, not slips. A separate signal, outside the score, counts concentrated reviewer pairs per team each week: a checker or approver who handled at least 60% of one maker\'s payments in that team, once the maker has at least 10.',
+      action: 'Amber at 25 and red at 50, or any concentrated pair: second-line sampling in the monthly report. Never blocks a payment. Team level by default, names only with a logged reason.' },
     'R-09': { id: 'R-09', name: 'Control health', module: 'M5', obligations: ['O7', 'O6'], screen: 'M5 control monitor',
       logic: 'Checks that compensating controls ran: same-day independent reconciliation, register reviews and dispensations in date, approver certifications current, hard-stop queue cleared, replay regression test passing.',
       action: 'Red or amber status alerts the control owner and feeds the M6 KRIs.' }
@@ -842,6 +844,35 @@
       rag: score >= cfg.r08Red ? 'red' : score >= cfg.r08Amber ? 'amber' : 'green',
       parts: { fastLook: Math.round(parts.fastLook), mismatch: Math.round(parts.mismatch), fastApprove: Math.round(parts.fastApprove) }
     };
+  }
+
+  /* R-08 concentrated reviewer pairs (report Table 6). Per team, per week: a checker or approver who handled at least
+     60% of one maker's payments that the team reviewed, once that maker has at least 10 of them. It is a separate signal
+     for second-line sampling, not part of the 40/30/30 score, and it never blocks a payment.
+     reviews: [{ team, role: 'approver'|'checker', reviewerId, makerId }] */
+  function reviewerPairs(reviews, cfgIn) {
+    var cfg = config(cfgIn);
+    var groups = {};
+    (reviews || []).forEach(function (r) {
+      if (!r || !r.team || !r.reviewerId || !r.makerId) return;
+      var role = r.role || 'approver';
+      var k = r.team + '|' + role + '|' + r.makerId;
+      var g = groups[k] = groups[k] || { team: r.team, role: role, makerId: r.makerId, n: 0, by: {} };
+      g.n += 1;
+      g.by[r.reviewerId] = (g.by[r.reviewerId] || 0) + 1;
+    });
+    var pairs = [];
+    Object.keys(groups).sort().forEach(function (k) {
+      var g = groups[k];
+      if (g.n < cfg.pairMinReviews) return;
+      Object.keys(g.by).sort().forEach(function (id) {
+        var share = g.by[id] / g.n;
+        if (share >= cfg.pairShare) pairs.push({ team: g.team, role: g.role, reviewerId: id, makerId: g.makerId, reviews: g.by[id], makerReviews: g.n, share: share });
+      });
+    });
+    var byTeam = {};
+    pairs.forEach(function (p) { byTeam[p.team] = (byTeam[p.team] || 0) + 1; });
+    return { pairs: pairs, byTeam: byTeam, count: pairs.length };
   }
 
   /* Classify one blind re-key for M4.
@@ -1664,6 +1695,7 @@
     teamReportable: teamReportable,
     // R-08
     rubberStampScore: rubberStampScore,
+    reviewerPairs: reviewerPairs,
     rekeyKind: rekeyKind,
     summariseReviews: summariseReviews,
     // M5 and R-09
