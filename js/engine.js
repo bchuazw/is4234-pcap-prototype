@@ -115,7 +115,7 @@
   var TIERS = {
     1: { id: 1, name: 'Tier 1', label: 'Routine', action: 'Normal release after the approver reads the consequence statement.' },
     2: { id: 2, name: 'Tier 2', label: 'Elevated', action: 'An in-house approver (certified for the workaround when one is used) re-keys the amount and payment type blind, then confirms the consequence statement. Every payment that sends principal out of the bank or uses a registered workaround is at least Tier 2.' },
-    3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. Only Operational Risk (second line) can release it, by recording a risk acceptance with a reason, the first-line risk owner and an expiry.' }
+    3: { id: 3, name: 'Tier 3', label: 'Critical', action: 'Hard stop. It cannot move on to the checker or the approver: the maker fixes it, or anyone in the chain refers it to Operational Risk with a reason. Operational Risk returns it as a real error or records a risk acceptance (reason, Head of Loan Ops as owner, this payment only, ends the same day), but cannot release it. Only the Head of Loan Ops can release it, as a fresh decision, after PCAP re-runs the rules and checks their authority and independence.' }
   };
 
   /* ------------------------------------------------------------------ */
@@ -282,7 +282,7 @@
     },
     approverExpects: 7820000,
     approverExpectsNature: 'INTEREST',
-    passRule: 'Pass only if R-01, R-02 and R-04 all fire, the payment is held at Tier 3 and the approver screen shows the principal amount (report 5.8).'
+    passRule: 'Pass only if R-01, R-02 and R-04 all fire, the payment is stopped at Tier 3 when it is keyed, the screen shows the principal amount (report 5.8), and the blind re-key backstop (R-07) would also stop it.'
   };
 
   /* ------------------------------------------------------------------ */
@@ -705,13 +705,15 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Releasing a Tier 3 hold: a documented risk acceptance (L5 slide 41) */
+  /* A stopped payment: risk acceptance by Operational Risk (L5 slide 41), */
+  /* then a fresh first-line release decision (report 5.5)                */
   /* ------------------------------------------------------------------ */
 
-  /* The first line owns the risk, Operational Risk (second line) challenges and records it,
-     Internal Audit (third line) reviews it. The acceptance covers one payment and ends with
-     the business day, so it can never be reused as a standing approval.
-     input: { paymentId, ev, category, reason, ownerId, recordedById, users, businessDate, makerId, checkerId, approverId } */
+  /* Operational Risk (second line) assesses a stopped payment and may record a documented risk acceptance, but cannot
+     release the money. The first line owns the risk: the owner is the Head of Loan Ops, never Operational Risk, the
+     outsourced provider or anyone who touched the payment. The acceptance covers one payment and ends with the business
+     day, so it can never be reused as a standing approval. Internal Audit (third line) reviews every one.
+     input: { paymentId, ev, category, reason, ownerId, recordedById, users, businessDate, makerId, checkerId, approverId, referredById } */
   function riskAcceptance(input, cfgIn) {
     var cfg = config(cfgIn);
     var problems = [];
@@ -719,13 +721,13 @@
     var owner = byId(input.users, input.ownerId);
     var recorder = byId(input.users, input.recordedById);
     if (reason.length < cfg.reasonMinChars) problems.push('Record a reason of at least ' + cfg.reasonMinChars + ' characters.');
-    if (ACCEPT_CATEGORIES.indexOf(input.category) < 0) problems.push('Choose why it is released: false alarm or approved business exception.');
-    if (!recorder || (recorder.roles || []).indexOf('oprisk') < 0) problems.push('Only Operational Risk (second line) can record the acceptance and release a Tier 3 hold.');
+    if (ACCEPT_CATEGORIES.indexOf(input.category) < 0) problems.push('Choose why it may go ahead: false alarm or approved business exception.');
+    if (!recorder || (recorder.roles || []).indexOf('oprisk') < 0) problems.push('Only Operational Risk (second line) can record a risk acceptance for a stopped payment.');
     if (!owner) problems.push('Name the first-line risk owner who accepts the risk.');
     else {
-      if ((owner.roles || []).indexOf('owner') < 0) problems.push(owner.name + ' is not a first-line risk owner.');
+      if ((owner.roles || []).indexOf('owner') < 0) problems.push(owner.name + ' is not a first-line risk owner. The owner is the Head of Loan Ops, never Operational Risk or the outsourced provider.');
       if (!owner.inHouse) problems.push('The risk owner must be a bank employee, not the outsourced provider.');
-      if ([input.makerId, input.checkerId, input.approverId, input.recordedById].indexOf(owner.id) >= 0) problems.push(owner.name + ' took part in this payment, so cannot also accept its risk.');
+      if ([input.makerId, input.checkerId, input.approverId, input.recordedById, input.referredById].indexOf(owner.id) >= 0) problems.push(owner.name + ' took part in this payment, so cannot also accept its risk.');
     }
     if (problems.length) return { ok: false, problems: problems };
     var ev = input.ev;
@@ -741,12 +743,63 @@
         recordedById: recorder.id,
         acceptedOn: input.businessDate,
         expires: input.businessDate,
+        status: 'awaiting-release',
         scope: 'This payment only. Expires at the end of the business day and cannot be reused for another payment.',
         followUp: falseAlarm
           ? 'Correct the loan schedule line so the next payment matches it (data quality). Owner: ' + owner.name
           : 'Record the exception in the loan schedule or the M1 register so it does not recur. Owner: ' + owner.name,
-        assessed: ev ? { tier: ev.tier, rules: ev.hits.slice(), external: ev.consequence.externalTotal, principalOut: ev.consequence.externalPrincipal, expected: ev.expected.remainingTotal, variance: round2(ev.consequence.externalTotal - ev.expected.remainingTotal) } : null
+        release: null,
+        assessed: ev ? { tier: ev.tier, rules: ev.hits.filter(function (k) { return k !== 'R-05' && k !== 'R-06'; }), external: ev.consequence.externalTotal, principalOut: ev.consequence.externalPrincipal, expected: ev.expected.remainingTotal, variance: round2(ev.consequence.externalTotal - ev.expected.remainingTotal) } : null
       }
+    };
+  }
+
+  /* The release of a stopped payment after a risk acceptance: a fresh, authorised first-line decision that must pass the
+     applicable checks (report 5.5). R-05 style: the releaser is the Head of Loan Ops named as risk owner, within their
+     limit. R-06 style: in-house and independent of everyone who handled the payment. The payment rules are re-run: only
+     the rules Operational Risk assessed may still fail, the amount must be the one assessed, and the acceptance must
+     still be in date. Operational Risk can never pass this check.
+     input: { releaserId, acceptance, ev, users, businessDate, makerId, checkerId, approverId, referredById } */
+  function releaseCheck(input) {
+    var acc = input.acceptance || {};
+    var ev = input.ev;
+    var users = input.users || [];
+    var rel = byId(users, input.releaserId);
+    var owner = byId(users, acc.ownerId);
+    var total = ev ? ev.consequence.externalTotal : 0;
+    var p05 = [], p06 = [], other = [];
+    if (!rel) p05.push('No releaser named.');
+    else {
+      if ((rel.roles || []).indexOf('owner') < 0) p05.push(rel.name + ' is not the Head of Loan Ops. Only a first-line risk owner can release a stopped payment, and Operational Risk never can.');
+      else if (acc.ownerId && rel.id !== acc.ownerId) p05.push('Only ' + (owner ? owner.name : acc.ownerId) + ', the risk owner named in ' + acc.id + ', can release it.');
+      if ((rel.approvalLimit || 0) < total) p05.push(rel.name + '\'s release limit (' + fmtUSD(rel.approvalLimit || 0) + ') is below the ' + fmtUSD(total) + ' this payment would send.');
+      if ([input.makerId, input.checkerId, input.approverId, input.referredById, acc.recordedById].indexOf(rel.id) >= 0) p06.push(rel.name + ' took part in this payment, so cannot also release it.');
+      if (!rel.inHouse) p06.push('The releaser must be a bank employee, not the outsourced provider.');
+      var line = [];
+      [[input.makerId, 'maker'], [input.checkerId, 'checker']].forEach(function (x) {
+        var u = byId(users, x[0]);
+        if (u && u.id !== rel.id && (u.reportsTo === rel.id || rel.reportsTo === u.id)) line.push(x[1]);
+      });
+      if (line.length) p06.push(rel.name + ' is in the reporting line of the ' + listAnd(line) + '.');
+    }
+    if (!acc.id) other.push('There is no risk acceptance for this payment, so it cannot be released.');
+    else if (acc.expires < input.businessDate) other.push(acc.id + ' ended on ' + fmtDate(acc.expires) + '. Operational Risk has to assess the payment again.');
+    var assessed = acc.assessed || {};
+    var now = ev ? ev.hits.filter(function (k) { return k !== 'R-05' && k !== 'R-06'; }) : [];
+    var fresh = now.filter(function (k) { return (assessed.rules || []).indexOf(k) < 0; });
+    if (fresh.length) other.push('Since Operational Risk assessed it, ' + listAnd(fresh) + (fresh.length === 1 ? ' also fails' : ' also fail') + '. Send it back to Operational Risk.');
+    if (ev && assessed.external != null && Math.abs(total - assessed.external) >= 0.01) other.push('It would now send ' + fmtUSD(total) + ', not the ' + fmtUSD(assessed.external) + ' Operational Risk assessed.');
+    var ok05 = rel ? rel.name + ' is the risk owner named in ' + (acc.id || 'the acceptance') + ', with a release limit of ' + fmtCompact(rel.approvalLimit || 0) + ', above the ' + fmtCompact(total) + ' this payment would send.' : '';
+    var ok06 = rel ? rel.name + ' (' + rel.employer + ', ' + rel.team + ') works for the bank and took no part in the payment.' : '';
+    return {
+      ok: !p05.length && !p06.length && !other.length,
+      results: {
+        'R-05': p05.length ? { rule: 'R-05', status: 'fire', message: p05.join(' ') } : { rule: 'R-05', status: 'pass', message: ok05 },
+        'R-06': p06.length ? { rule: 'R-06', status: 'fire', message: p06.join(' ') } : { rule: 'R-06', status: 'pass', message: ok06 }
+      },
+      rulesNow: now,
+      newRules: fresh,
+      problems: p05.concat(p06, other)
     };
   }
 
@@ -919,11 +972,12 @@
 
     /* CC-05 hard-stop queue cleared the same day */
     (function () {
-      var held = payments.filter(function (p) { return p.status === 'HELD'; });
+      /* Stopped payments not yet decided: waiting for Operational Risk, or signed off and waiting for the Head of Loan Ops. */
+      var held = payments.filter(function (p) { return p.status === 'HELD' || p.status === 'ACCEPTED'; });
       var old = held.filter(function (p) { return p.heldDate && p.heldDate < bd; });
       var rag = 'green', msg = 'No Tier 3 holds waiting.';
       if (old.length) { rag = 'red'; msg = old.length + ' Tier 3 hold' + (old.length === 1 ? '' : 's') + ' older than today.'; }
-      else if (held.length) { rag = 'amber'; msg = held.length + ' Tier 3 hold' + (held.length === 1 ? '' : 's') + ' waiting for Operational Risk today.'; }
+      else if (held.length) { rag = 'amber'; msg = held.length + ' Tier 3 hold' + (held.length === 1 ? '' : 's') + ' waiting for a decision today.'; }
       out.push({ id: 'CC-05', rag: rag, message: msg });
     })();
 
@@ -946,20 +1000,22 @@
     return { controls: out, overall: ragWorst(out.map(function (x) { return x.rag; })) };
   }
 
-  /* The replay as a regression test (used by M5 CC-06, the synthetic test and the unit tests). */
+  /* The replay as a regression test (used by M5 CC-06, the synthetic test and the unit tests). The payment is stopped
+     when it is keyed, so it never reaches an approver. As a second, independent check the test also runs the blind
+     re-key an approver would have made (USD 7.82M as interest only) and confirms R-07 would stop it there too. */
   function replayCheck(ctx, ids) {
     var instr = REPLAY.instruction(ids);
     var ev = evaluate(instr, ctx);
     var said = { amount: REPLAY.approverExpects, nature: REPLAY.approverExpectsNature };
     var rk = rekeyResult(ev, [said, said], ctx.config);
-    var after = withRekey(ev, rk);
-    var principalShown = after.statement.join(' ').indexOf(fmtUSD(REPLAY.loan.principalOutstanding) + ' of PRINCIPAL') >= 0;
+    var backstop = withRekey(ev, rk);
+    var principalShown = ev.statement.join(' ').indexOf(fmtUSD(REPLAY.loan.principalOutstanding) + ' of PRINCIPAL') >= 0;
     var need = ['R-01', 'R-02', 'R-04'];
-    var missing = need.filter(function (k) { return after.hits.indexOf(k) < 0; });
-    var pass = missing.length === 0 && after.tier === 3 && principalShown;
-    var detail = pass ? 'R-01, R-02 and R-04 fired, held at Tier 3, principal shown' :
-      (missing.length ? 'Missing ' + missing.join(', ') + '. ' : '') + (after.tier !== 3 ? 'Tier ' + after.tier + ' instead of 3. ' : '') + (!principalShown ? 'Principal amount not shown.' : '');
-    return { pass: pass, tier: after.tier, hits: after.hits, rekey: rk, statement: after.statement, principalShown: principalShown, detail: detail.trim(), evaluation: after };
+    var missing = need.filter(function (k) { return ev.hits.indexOf(k) < 0; });
+    var pass = missing.length === 0 && ev.tier === 3 && principalShown && rk.status === 'fire';
+    var detail = pass ? 'R-01, R-02 and R-04 fired, held at Tier 3, principal shown. The blind re-key backstop would also stop it' :
+      (missing.length ? 'Missing ' + missing.join(', ') + '. ' : '') + (ev.tier !== 3 ? 'Tier ' + ev.tier + ' instead of 3. ' : '') + (!principalShown ? 'Principal amount not shown. ' : '') + (rk.status !== 'fire' ? 'The blind re-key backstop did not fire.' : '');
+    return { pass: pass, tier: ev.tier, hits: ev.hits, rekey: rk, backstop: { tier: backstop.tier, hits: backstop.hits }, statement: ev.statement, principalShown: principalShown, detail: detail.trim(), evaluation: ev };
   }
 
   /* ------------------------------------------------------------------ */
@@ -1224,6 +1280,12 @@
       };
       if (!ev.gate.open) {
         rec.outcome = 'GATE_BLOCK';
+      } else if (ev.tier === 3) {
+        /* Stopped before it reaches the checker or the approver (report 5.5), so it adds no approver time. The test
+           assumes every stopped payment is referred to Operational Risk, an upper bound on their time. */
+        rec.stage = 'maker';
+        rec.holdMin = round2(rng.float(TIME_MODEL.opRiskReviewMin[0], TIME_MODEL.opRiskReviewMin[1]));
+        rec.outcome = p.error ? 'HELD_REJECTED' : 'HELD_RELEASED';
       } else {
         var read, added;
         if (ev.tier === 1) {
@@ -1245,6 +1307,8 @@
           if (after.tier === 2) added += rng.float(beh.confirm[0], beh.confirm[1]);
           if (!rk.firstMatch) added += rng.float(beh.retry[0], beh.retry[1]);
           if (after.tier === 3) {
+            /* The blind re-key failed twice: blocked at the approver and referred to Operational Risk. */
+            rec.stage = 'approver';
             rec.holdMin = round2(rng.float(TIME_MODEL.opRiskReviewMin[0], TIME_MODEL.opRiskReviewMin[1]));
             rec.outcome = p.error ? 'HELD_REJECTED' : 'HELD_RELEASED';
           } else {
@@ -1300,16 +1364,22 @@
     falseAlarms.forEach(function (r) { r.fired.forEach(function (k) { faByRule[k] = (faByRule[k] || 0) + 1; }); });
     var policyTier2 = clean.filter(function (r) { return !flagged(r) && r.finalTier === 2; }).length;
 
+    /* Approver time: only payments that reached an approver are timed. A payment stopped before the approver adds none,
+       so the average is taken over every payment the gate let through. */
     var timed = records.filter(function (r) { return r.addedSec != null; });
+    var gateOpen = records.filter(function (r) { return r.gateOpen; }).length;
+    var totalSec = timed.reduce(function (s, r) { return s + r.addedSec; }, 0);
     function med(rs) { var m = median(rs.map(function (r) { return r.addedSec; })); return m == null ? null : Math.round(m * 10) / 10; }
     var time = {
       medianTier1Sec: med(timed.filter(function (r) { return r.finalTier === 1; })),
       medianTier2Sec: med(timed.filter(function (r) { return r.finalTier === 2; })),
       medianTier3Sec: med(timed.filter(function (r) { return r.finalTier === 3; })),
       medianTier23Sec: med(timed.filter(function (r) { return r.finalTier >= 2; })),
-      meanAllSec: (function () { var m = mean(timed.map(function (r) { return r.addedSec; })); return m == null ? null : Math.round(m * 10) / 10; })(),
+      meanAllSec: gateOpen ? Math.round(totalSec / gateOpen * 10) / 10 : null,
+      totalSec: Math.round(totalSec * 10) / 10,
       medianHoldMin: (function () { var m = median(records.filter(function (r) { return r.holdMin != null; }).map(function (r) { return r.holdMin; })); return m == null ? null : Math.round(m * 10) / 10; })(),
       timedCount: timed.length,
+      stoppedBeforeApprover: records.filter(function (r) { return r.stage === 'maker'; }).length,
       model: TIME_MODEL
     };
 
@@ -1364,7 +1434,7 @@
       coverage: coverage,
       r08: r08,
       recon: { released: reconRows.length, breaks: reconBreaks.length },
-      replay: { pass: replay.pass, tier: replay.tier, hits: replay.hits, statement: replay.statement, detail: replay.detail, rekey: replay.rekey.status },
+      replay: { pass: replay.pass, tier: replay.tier, hits: replay.hits, statement: replay.statement, detail: replay.detail, rekey: replay.rekey.status, backstop: replay.backstop },
       errorRecords: errors,
       falseAlarmRecords: falseAlarms,
       fingerprint: fingerprint,
@@ -1372,8 +1442,8 @@
       assumptions: [
         'Clean payments are keyed exactly as the agent notice says. ' + Math.round(batch.staleRate * 1000) / 10 + '% of clean payments read a stale schedule line (0.5% to 3% off), to model the reference-data risk in report 5.9.',
         'Approvers re-key the amount and say whether it is interest, principal or both, from their own source (the agent notice). Normal teams slip on ' + TIME_MODEL.normal.slip * 100 + '% of first attempts and the rubber-stamp team (Citi Approvers TPA) on ' + TIME_MODEL.rubber.slip * 100 + '%.',
-        'Operational Risk rejects held error payments and releases held clean payments with a recorded risk acceptance. The test measures what PCAP holds, so it assumes this second-line decision is right every time.',
-        'Added time is a model estimate in seconds of approver work, not a timed walk-through. Tier 3 hold time with Operational Risk is reported separately in minutes.',
+        'A stopped payment never reaches the checker or the approver. The test assumes every stopped payment is referred to Operational Risk, an upper bound on their time, as a maker can fix an obvious error without them. Operational Risk returns real errors to the maker and records a risk acceptance for a correct payment that was stopped, which the Head of Loan Ops then releases. The test assumes these decisions are right every time, so it measures what PCAP stops, not human judgement.',
+        'Added time is a model estimate in seconds of approver work, not a timed walk-through. A payment stopped before the approver adds no approver time. Operational Risk time on a stopped payment is reported separately in minutes.',
         'M5 reconciliation compares each released payment with what should have been paid that day.'
       ]
     };
@@ -1455,7 +1525,7 @@
       tier1MedianSec: time.medianTier1Sec,
       tier23MedianSec: time.medianTier23Sec,
       meanSec: time.meanAllSec,
-      approverHoursPerMonth: round1((time.meanAllSec || 0) * timed / 3600),
+      approverHoursPerMonth: round1(time.totalSec != null ? time.totalSec / 3600 : (time.meanAllSec || 0) * timed / 3600),
       opRiskHoursPerMonth: round1(tier3 * (time.medianHoldMin || 0) / 60),
       errors: summary.errorCount,
       stoppedBeforeRelease: d.stoppedBeforeRelease,
@@ -1471,10 +1541,10 @@
   /* This week's work, counted from the tagged event log (events on or after weekStart). Pure, so the tests can check it. */
   function weekSummary(events, weekStart) {
     var out = {
-      events: 0, paymentsCovered: 0, keyed: 0, resubmitted: 0, checked: 0, returned: 0, checkerReturns: 0, approverReturns: 0, gateBlocks: 0,
-      released: 0, releasedByTier: { 1: 0, 2: 0, 3: 0 }, holds: 0, heldRejected: 0, heldReleased: 0, keptBack: 0,
-      sentOnTier3: 0, rekeys: 0, rekeySlips: 0, rekeyCatches: 0, acceptances: 0, auditReviews: 0, attestations: 0,
-      exports: 0, controlRuns: 0, dwellTier1: [], dwellTier23: [], minutesHeld: [],
+      events: 0, paymentsCovered: 0, keyed: 0, keyedTier3: 0, resubmitted: 0, checked: 0, returned: 0, checkerReturns: 0, approverReturns: 0, gateBlocks: 0,
+      released: 0, releasedByTier: { 1: 0, 2: 0, 3: 0 }, holds: 0, referred: { maker: 0, checker: 0, approver: 0 }, heldRejected: 0, heldReleased: 0, keptBack: 0,
+      sentOnTier3: 0, rekeys: 0, rekeySlips: 0, rekeyCatches: 0, acceptances: 0, ownerDeclined: 0, auditReviews: 0, attestations: 0,
+      exports: 0, controlRuns: 0, escalations: 0, dwellTier1: [], dwellTier23: [], minutesHeld: [],
       medianDwellTier1: null, medianDwellTier23: null, medianMinutesHeld: null
     };
     var tierAt = {}, held = {}, pays = {}, blocked = {};
@@ -1485,7 +1555,7 @@
       out.events += 1;
       if (e.paymentId) pays[e.paymentId] = 1;
       switch (e.type) {
-        case 'SUBMITTED': out.keyed += 1; break;
+        case 'SUBMITTED': out.keyed += 1; if (e.data && e.data.tier === 3) out.keyedTier3 += 1; break;
         case 'RESUBMITTED': out.resubmitted += 1; break;
         case 'CHECKED': out.checked += 1; if (tierAt[e.paymentId] === 3) out.sentOnTier3 += 1; break;
         case 'RETURNED':
@@ -1499,8 +1569,13 @@
           if (e.data && out.releasedByTier[e.data.tier] != null) out.releasedByTier[e.data.tier] += 1;
           if (e.data && typeof e.data.dwellSec === 'number') (e.data.tier >= 2 ? out.dwellTier23 : out.dwellTier1).push(e.data.dwellSec);
           break;
-        case 'OPRISK_RELEASED': out.released += 1; out.releasedByTier[3] += 1; out.heldReleased += 1; if (e.data) out.minutesHeld.push(e.data.minutesHeld); break;
-        case 'HELD': out.holds += 1; break;
+        /* A stopped payment released by the Head of Loan Ops after Operational Risk's risk acceptance. */
+        case 'OWNER_RELEASED': out.released += 1; out.releasedByTier[3] += 1; out.heldReleased += 1; break;
+        case 'OWNER_DECLINED': out.ownerDeclined += 1; break;
+        case 'HELD':
+          out.holds += 1;
+          if (e.data && e.data.stage && out.referred[e.data.stage] != null) out.referred[e.data.stage] += 1;
+          break;
         case 'OPRISK_REJECTED':
           out.heldRejected += 1;
           if (e.data) out.minutesHeld.push(e.data.minutesHeld);
@@ -1512,7 +1587,8 @@
           if (e.data && e.data.kind === 'slip' && e.result === 'pass') out.rekeySlips += 1;
           if (e.data && e.data.kind === 'catch' && e.result === 'fire') out.rekeyCatches += 1;
           break;
-        case 'RISK_ACCEPTED': out.acceptances += 1; break;
+        case 'RISK_ACCEPTED': out.acceptances += 1; if (e.data && typeof e.data.minutesHeld === 'number') out.minutesHeld.push(e.data.minutesHeld); break;
+        case 'CONTROL_ESCALATED': out.escalations += 1; break;
         case 'ACCEPTANCE_REVIEWED': out.auditReviews += 1; break;
         case 'REGISTER_REVIEWED': case 'REGISTER_APPROVED': out.attestations += 1; break;
         case 'EVIDENCE_EXPORTED': out.exports += 1; break;
@@ -1578,8 +1654,9 @@
     evaluate: evaluate,
     rekeyResult: rekeyResult,
     withRekey: withRekey,
-    // Tier 3 release as a documented risk acceptance
+    // a stopped payment: risk acceptance by Operational Risk, then a release decision by the Head of Loan Ops
     riskAcceptance: riskAcceptance,
+    releaseCheck: releaseCheck,
     // M4
     summariseOutsourced: summariseOutsourced,
     teamReportable: teamReportable,

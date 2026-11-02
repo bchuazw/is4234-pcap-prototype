@@ -60,12 +60,14 @@ test('Revlon replay: the approver screen states the principal in plain words', (
   assert.match(text, /Only PRINCIPAL is set to the wash account/);
 });
 
-test('Revlon replay passes the 5.8 regression check, including the blind re-key', () => {
+test('Revlon replay passes the 5.8 regression check: stopped when keyed, with the blind re-key as a backstop', () => {
   const r = E.replayCheck(ctx());
   assert.equal(r.pass, true, r.detail);
   assert.equal(r.tier, 3);
-  assert.equal(r.rekey.status, 'fire', 'approver expected 7.82M, so the blind re-key escalates');
-  assert.ok(r.hits.includes('R-07'));
+  assert.deepEqual(r.hits.slice().sort(), ['R-01', 'R-02', 'R-04'], 'the rules that stop it when it is keyed');
+  assert.equal(r.rekey.status, 'fire', 'had it reached an approver who expected 7.82M, the blind re-key would stop it too');
+  assert.ok(r.backstop.hits.includes('R-07'));
+  assert.equal(r.backstop.tier, 3);
 });
 
 /* ---------------- Normal payments ---------------- */
@@ -277,7 +279,7 @@ test('R-07 Active confirmation also checks the payment type: the right amount ca
   assert.match(replay.rekey.message, /USD 7,820,000 \(interest only\) but this instruction would send USD 901,720,000 \(principal and interest\)/);
 });
 
-test('releasing a Tier 3 hold is a documented risk acceptance: reason, first-line owner, one payment, expires the same day', () => {
+test('a risk acceptance on a stopped payment: reason, first-line owner, one payment, expires the same day', () => {
   const c = ctx();
   const ev = E.evaluate(E.REPLAY.instruction(), c);
   const base = { paymentId: 'PAY-1', ev, category: E.ACCEPT_CATEGORIES[1], reason: 'Lender consent received for an early repayment.', ownerId: 'U-HLO', recordedById: 'U-OR1', users: c.users, businessDate: BD, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1' };
@@ -295,6 +297,50 @@ test('releasing a Tier 3 hold is a documented risk acceptance: reason, first-lin
   assert.match(bad({ ownerId: 'U-OR1' }).problems.join(' '), /not a first-line risk owner/, 'Operational Risk cannot own the risk it oversees');
   assert.match(bad({ ownerId: 'U-SUP1' }).problems.join(' '), /bank employee|first-line risk owner/, 'the outsourced provider cannot own the risk');
   assert.match(bad({ recordedById: 'U-AP1' }).problems.join(' '), /Only Operational Risk/);
+});
+
+test('acceptance owner rules: the Head of Loan Ops only, never Operational Risk, the provider or anyone who touched the payment', () => {
+  const c = ctx();
+  const ev = E.evaluate(E.REPLAY.instruction(), c);
+  const base = { paymentId: 'PAY-1', ev, category: E.ACCEPT_CATEGORIES[0], reason: 'The loan schedule line is out of date.', ownerId: 'U-HLO', recordedById: 'U-OR1', users: c.users, businessDate: BD, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', referredById: 'U-MK1' };
+  const ok = E.riskAcceptance(base);
+  assert.equal(ok.ok, true, ok.problems.join(' '));
+  assert.equal(ok.record.status, 'awaiting-release', 'recording the acceptance releases nothing');
+  assert.equal(ok.record.release, null);
+  assert.match(ok.record.followUp, /Owner: Dana F\./);
+  assert.match(ok.record.scope, /This payment only/);
+  const bad = (over, users) => E.riskAcceptance(Object.assign({}, base, over, users ? { users } : {})).problems.join(' ');
+  assert.match(bad({ ownerId: 'U-OR1' }), /not a first-line risk owner/, 'Operational Risk cannot own the risk it oversees');
+  assert.match(bad({ ownerId: 'U-AP1' }), /not a first-line risk owner/, 'an approver is not the risk owner');
+  const wiproOwner = c.users.map((u) => (u.id === 'U-SUP1' ? Object.assign({}, u, { roles: ['owner'] }) : u));
+  assert.match(bad({ ownerId: 'U-SUP1' }, wiproOwner), /bank employee/, 'the outsourced provider can never own the risk');
+  assert.match(bad({ referredById: 'U-HLO' }), /took part in this payment/, 'whoever referred it cannot accept its risk');
+  assert.match(bad({ approverId: 'U-HLO' }), /took part in this payment/);
+  assert.match(bad({ reason: 'too short' }), /15 characters/);
+});
+
+test('the release check: only the named Head of Loan Ops, within limit, independent, with the same rules and amount as assessed, on the same day', () => {
+  const c = ctx();
+  const ev = E.evaluate(E.REPLAY.instruction(), c);
+  const acc = Object.assign(E.riskAcceptance({ paymentId: 'PAY-1', ev, category: E.ACCEPT_CATEGORIES[1], reason: 'Approved exception for the test.', ownerId: 'U-HLO', recordedById: 'U-OR1', users: c.users, businessDate: BD, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', referredById: 'U-MK1' }).record, { id: 'RA-0001' });
+  const input = { releaserId: 'U-HLO', acceptance: acc, ev, users: c.users, businessDate: BD, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', referredById: 'U-MK1' };
+  const good = E.releaseCheck(input);
+  assert.equal(good.ok, true, good.problems.join(' '));
+  assert.equal(good.results['R-05'].status, 'pass');
+  assert.equal(good.results['R-06'].status, 'pass');
+  assert.deepEqual(good.rulesNow.slice().sort(), ['R-01', 'R-02', 'R-04'], 'the rules are re-run at release');
+  const opr = E.releaseCheck(Object.assign({}, input, { releaserId: 'U-OR1' }));
+  assert.equal(opr.ok, false, 'Operational Risk can never release');
+  assert.match(opr.results['R-05'].message, /not the Head of Loan Ops/);
+  assert.equal(E.releaseCheck(Object.assign({}, input, { releaserId: 'U-AP1' })).ok, false, 'an approver cannot release a stopped payment');
+  assert.match(E.releaseCheck(Object.assign({}, input, { businessDate: E.addDays(BD, 1) })).problems.join(' '), /ended on/, 'the acceptance ends with the day');
+  const lowLimit = c.users.map((u) => (u.id === 'U-HLO' ? Object.assign({}, u, { approvalLimit: 1000000 }) : u));
+  assert.match(E.releaseCheck(Object.assign({}, input, { users: lowLimit })).results['R-05'].message, /release limit/);
+  assert.match(E.releaseCheck(Object.assign({}, input, { referredById: 'U-HLO' })).results['R-06'].message, /took part/);
+  const retired = ctx((x) => { E.byId(x.register, 'WA-01').status = 'Retired'; });
+  const changed = E.releaseCheck(Object.assign({}, input, { ev: E.evaluate(E.REPLAY.instruction(), retired) }));
+  assert.equal(changed.ok, false);
+  assert.match(changed.problems.join(' '), /R-03 also fails/, 'a rule that fails after the assessment blocks the release');
 });
 
 test('M4 privacy: every approver team in the demo has at least 3 approvers, and smaller teams get no score', () => {

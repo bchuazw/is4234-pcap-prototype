@@ -2,8 +2,9 @@
  * PCAP prototype: the guided tour ("See how PCAP would have stopped it").
  *
  * Story mode. The app replays the 2020 payment end to end in the real payment desk while the viewer only
- * presses Next: it keys the payment, switches role, submits, re-keys, holds, fixes it, and then shows a
- * routine payment going through in one click for contrast.
+ * presses Next: it keys the payment, PCAP stops it and it cannot be sent on, the maker refers it to Operational
+ * Risk, who return it as a real error, the maker fixes it, the approver types their own figure and releases only
+ * the interest, and then a routine payment goes through in one click for contrast.
  *
  * Robust by design: every step is a plain state change through the same store actions the desk buttons
  * call, followed by one synchronous render. Nothing waits for a timer or an animation. Back rebuilds the
@@ -19,9 +20,9 @@
 
   var WASH_ALL = function (E) { return { FRONT: E.WASH, FUND: E.WASH, PRINCIPAL: E.WASH }; };
   var NOTES = {
-    checker: 'Principal set to wash.',
-    approver: 'My notice says USD 7.8M of interest only. This would send the principal out.',
-    oprisk: 'Principal would leave the bank on an interest-only date. Set FRONT and FUND to the wash account and resubmit.'
+    maker: 'Set up as WA-01 for the roll-up, as we always do. Please check it.',
+    oprisk: 'Real error. FRONT and FUND are not set to the wash account, so the principal would leave the bank. Set them and key it again.',
+    checker: 'All three parts set to the wash account. Interest only to the lenders.'
   };
   function cleanInstr(S) {
     var lend = { FRONT: 'LENDERS', FUND: 'LENDERS', PRINCIPAL: 'LENDERS' };
@@ -41,36 +42,38 @@
     { id: 'consequence', title: 'PCAP says what will really happen', target: '.d-lead',
       text: 'Before anything moves, PCAP works out what will really leave the bank: USD 901.7M, about 115 times what is due. So it marks the payment Stopped.',
       view: function () { return { role: 'maker', form: { preset: 'revlon', step: 2 } }; } },
-    { id: 'checker', title: 'The checker sees the same warning', target: '.d-rail .action', avoid: '.dbanner, .cq-hero',
-      text: 'Priya sends it anyway, as in 2020. The checker sees the same warning and PCAP suggests sending it back, but the tour passes it on, as the checker did in 2020.',
-      act: function (S, E, c) { c.revlon = S.submitInstruction(E.REPLAY.instruction(), 'U-MK1').id; },
-      view: function (c) { return { role: 'checker', sel: c.revlon }; } },
-    { id: 'approver', title: 'Now you are the approver', target: '.rekey',
-      text: 'You are the approver. PCAP hides the maker\'s numbers and asks you to type what you expect to pay.',
-      act: function (S, E, c) { S.checkPayment(c.revlon, 'U-CK1', NOTES.checker); S.approverOpen(c.revlon); },
-      view: function (c) { return { role: 'approver', sel: c.revlon, fill: { amount: '7,820,000', nature: 'INTEREST' } }; } },
-    { id: 'mismatch', title: 'Your number does not match', target: '.d-lead',
-      text: 'You typed USD 7.8M of interest, but the payment really sends USD 901.7M. After two tries PCAP shows you the real amount and stops the payment, so you cannot release it.',
-      act: function (S, E, c) {
-        S.approverRekey(c.revlon, 7820000, 'INTEREST');
-        S.approverRekey(c.revlon, 7820000, 'INTEREST');
-        S.approverReveal(c.revlon);
-      },
-      view: function (c) { return { role: 'approver', sel: c.revlon }; } },
-    { id: 'oprisk', title: 'A separate team decides', target: '.d-rail .action', avoid: '.dbanner, .cq-hero',
-      text: 'Only Operational Risk, a team outside the payment chain, can decide on a stopped payment. They see why it was held and who saw it, and releasing it would need a written risk sign-off.',
-      act: function (S, E, c, t) { S.approverEscalate(c.revlon, { dwellSec: t.dwell(c.revlon), note: NOTES.approver }); },
+    { id: 'blocked', title: 'A stopped payment cannot be sent on', target: '.d-rail .action', avoid: '.dbanner, .cq-hero',
+      text: 'In 2020 a checker and an approver passed this payment on, and that is where it went wrong. Here it cannot go to the checker: Priya can only fix it, or refer it to Operational Risk with a reason.',
+      view: function () { return { role: 'maker', form: { preset: 'revlon', step: 2 } }; } },
+    { id: 'oprisk', title: 'Operational Risk sees why', target: '.d-rail .action', avoid: '.dbanner, .cq-hero',
+      text: 'Priya believes it is right, so she refers it, and Operational Risk sees what failed and who saw it. They cannot release money: a false alarm would get their risk sign-off, and then the Head of Loan Ops decides on release.',
+      act: function (S, E, c) { c.revlon = S.referInstruction(E.REPLAY.instruction(), 'U-MK1', NOTES.maker).id; },
       view: function (c) { return { role: 'oprisk', sel: c.revlon }; } },
-    { id: 'fixed', title: 'Sent back and fixed', target: '.d-lead',
-      text: 'Operational Risk sends it back and Priya fixes the two missing lines. Now only USD 7.8M of interest leaves, and it still gets a closer look because it uses a workaround.',
+    { id: 'fixed', title: 'A real error, sent back and fixed', target: '.d-lead',
+      text: 'Operational Risk returns it as a real error and Priya sets the two missing lines. Now only USD 7.8M of interest leaves, and it still gets a closer look because it uses a workaround.',
       act: function (S, E, c) { S.opRiskReject(c.revlon, 'U-OR1', NOTES.oprisk); },
       view: function (c) { return { role: 'maker', form: { edit: c.revlon, fixLegs: true, step: 2 } }; } },
-    { id: 'routine', title: 'A routine payment, for contrast', target: '.d-rail .action', avoid: '.dbanner, .cq-hero',
-      text: 'Most payments look like this one. It matches the loan schedule, so the approver reads one sentence and clicks Release, with no extra steps.',
+    { id: 'rekey', title: 'The approver types their own figure', target: '.rekey',
+      text: 'An in-house approver types the amount and the kind of payment from their own notice. PCAP hides its own figure and the maker\'s numbers until they do.',
       act: function (S, E, c) {
         var fixed = E.clone(S.payment(c.revlon).instr);
         fixed.fields = WASH_ALL(E);
         S.submitInstruction(fixed, 'U-MK1', c.revlon);
+        S.checkPayment(c.revlon, 'U-CK1', NOTES.checker);
+        S.approverOpen(c.revlon);
+      },
+      view: function (c) { return { role: 'approver', sel: c.revlon, fill: { amount: '7,820,000', nature: 'INTEREST' } }; } },
+    { id: 'match', title: 'It matches', target: '.d-lead',
+      text: 'The approver\'s USD 7.8M of interest matches what PCAP worked out, and the principal stays in the bank. Only now does the approver see PCAP\'s own figures.',
+      act: function (S, E, c) { S.approverRekey(c.revlon, 7820000, 'INTEREST'); S.approverReveal(c.revlon); },
+      view: function (c) { return { role: 'approver', sel: c.revlon }; } },
+    { id: 'release', title: 'Confirmed and released', target: '.d-head',
+      text: 'The approver ticks I confirm and releases it. USD 7.8M of interest left the bank and the USD 893.9M of principal stayed in.',
+      act: function (S, E, c, t) { S.approverApprove(c.revlon, { dwellSec: t.dwell(c.revlon), confirmed: true }); },
+      view: function (c) { return { role: 'approver', sel: c.revlon }; } },
+    { id: 'routine', title: 'A routine payment, for contrast', target: '.d-rail .action', avoid: '.dbanner, .cq-hero',
+      text: 'Most payments look like this one: interest that matches the loan schedule. The approver reads one sentence and clicks Release, with no extra steps.',
+      act: function (S, E, c) {
         c.clean = S.submitInstruction(cleanInstr(S), 'U-MK1').id;
         S.checkPayment(c.clean, 'U-CK1', '');
         S.approverOpen(c.clean);
@@ -82,7 +85,7 @@
       act: function (S, E, c, t) { S.approverApprove(c.clean, { dwellSec: t.dwell(c.clean) }); },
       view: function (c) { return { role: 'approver', sel: c.clean }; } },
     { id: 'end', title: 'That\'s PCAP', end: true,
-      text: 'PCAP tells people in plain words what a payment will really do. Routine payments go through in one click, and anything unexpected is stopped and sent to the right person.',
+      text: 'PCAP tells people in plain words what a payment will really do. Routine payments go through in one click, and a stopped payment cannot move on until it is fixed or a separate team has looked at it.',
       view: function (c) { return { role: 'approver', sel: c.clean }; } }
   ];
 
@@ -160,7 +163,7 @@
     u.deskReturn = null;
     u.deskQueueOpen = null;
     u.deskQ = { text: '', tier: '' };
-    u.oprRelease = null;
+    u.oprAccept = null;
     if (v.form) {
       var d = v.form.preset ? desk.PRESETS[v.form.preset]() : desk.editDraft(v.form.edit, { fixLegs: !!v.form.fixLegs });
       delete d.fresh;

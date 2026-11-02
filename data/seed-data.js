@@ -31,7 +31,9 @@
       { id: 'U-AP8', name: 'Victor S.', employer: 'Citi', inHouse: true, team: 'Citi Approvers TPA', title: 'Manager, loan operations', roles: ['approver'], reportsTo: 'U-HLO', approvalLimit: 2000000000, certs: [{ type: 'WA-01', validOffset: 120 }] },
       { id: 'U-AP9', name: 'Mei L.', employer: 'Citi', inHouse: true, team: 'Citi Approvers TPA', title: 'Assistant manager, loan operations', roles: ['approver'], reportsTo: 'U-AP8', approvalLimit: 50000000, certs: [] },
       { id: 'U-OR1', name: 'Rana H.', employer: 'Citi', inHouse: true, team: 'Citi Operational Risk', title: 'Operational Risk, second line', roles: ['oprisk'], reportsTo: null, approvalLimit: 0, certs: [] },
-      { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations, first line owner', roles: ['owner'], reportsTo: null, approvalLimit: 0, certs: [] },
+      /* The Head of Loan Ops is the only person who can release a stopped payment, after Operational Risk's risk acceptance,
+         so the release limit is checked against the amount PCAP computes (R-05 style). Not an approver in the normal chain. */
+      { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations, first line owner', roles: ['owner'], reportsTo: null, approvalLimit: 2000000000, certs: [] },
       { id: 'U-TEC', name: 'Evan L.', employer: 'Citi', inHouse: true, team: 'Citi Technology', title: 'Tech lead, payments platform', roles: ['tech'], reportsTo: null, approvalLimit: 0, certs: [] },
       { id: 'U-IA1', name: 'Noor A.', employer: 'Citi', inHouse: true, team: 'Citi Internal Audit', title: 'Internal Audit, third line', roles: ['audit'], reportsTo: null, approvalLimit: 0, certs: [] },
       /* Read-only viewers: they see results, never act on a payment or run a control. */
@@ -88,6 +90,11 @@
       { id: 'LN-1008', name: 'Brightwater Utilities term loan', borrower: 'Brightwater Utilities (synthetic)', lenders: 7, principalOutstanding: 96000000,
         schedule: [
           { offset: -1, interest: 845000, principal: 0, note: 'Quarterly interest' }
+        ] },
+      /* The schedule line still has the rate before the reset, so a correct payment at the new rate is stopped (a false alarm). */
+      { id: 'LN-1009', name: 'Larkspur Ports term loan', borrower: 'Larkspur Ports (synthetic)', lenders: 24, principalOutstanding: 280000000,
+        schedule: [
+          { offset: 0, interest: 1260000, principal: 0, note: 'Quarterly interest. Loaded before the rate reset.' }
         ] }
     ],
 

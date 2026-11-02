@@ -13,10 +13,10 @@
   var U = PCAP.util;
   var DATA = PCAP.data;
 
-  var VERSION = 6;
+  var VERSION = 7;
   var KEY = 'pcap-prototype-state';
   /* Which role a payment is waiting for, by status. */
-  var WAITS = { SUBMITTED: 'checker', CHECKED: 'approver', HELD: 'oprisk', RETURNED: 'maker' };
+  var WAITS = { SUBMITTED: 'checker', CHECKED: 'approver', HELD: 'oprisk', RETURNED: 'maker', ACCEPTED: 'owner' };
 
   /* Browser storage only. Outside a browser (Node tests) state stays in memory. */
   var storage = (function () {
@@ -172,8 +172,23 @@
 
   /* ------------------------------------------------------------ payment actions */
 
-  function submitInstruction(instr, actorId, editingId) {
-    var ev = evaluateInstr(instr);
+  /* Report 5.5: a stopped (Tier 3) payment never moves forward in the normal chain. Its only ways forward are a fix by
+     the maker, or a referral to Operational Risk with a reason by anyone in the chain. */
+  var STOP_TO_CHECKER = 'Stopped. A stopped payment cannot go to the checker. Fix it, or refer it to Operational Risk with a reason.';
+  var STOP_TO_APPROVER = 'Stopped. A stopped payment cannot go to the approver. Return it to the maker, or refer it to Operational Risk with a reason.';
+  var STAGE_LABEL = { maker: 'the maker', checker: 'the checker', approver: 'the approver' };
+
+  function needReason(reason, what) {
+    var r = String(reason || '').trim();
+    var min = E.DEFAULT_CONFIG.reasonMinChars;
+    if (r.length < min) throw new Error('Write ' + (what || 'a reason') + ' of at least ' + min + ' characters.');
+    return r;
+  }
+  function sentence(s) { s = String(s || '').trim(); return /[.!?]$/.test(s) ? s : s + '.'; }
+  function minutesSince(iso) { return iso ? Math.round((now() - new Date(iso)) / 6000) / 10 : null; }
+
+  /* Store the instruction as a payment (new, or a new version of a returned one) and log what PCAP found. */
+  function recordInstruction(instr, actorId, editingId, ev, stopped) {
     var p;
     var clean = E.clone(instr);
     if (editingId) {
@@ -184,6 +199,7 @@
       p.approval = null;
       p.checkerNote = '';
       p.returnReason = null;
+      p.referral = null;
     } else {
       p = { id: nextPayId(), createdAt: nowISO(), createdDate: today(), version: 1, instr: clean };
       S.state.payments.unshift(p);
@@ -201,7 +217,8 @@
     logEvent({
       type: editingId ? 'RESUBMITTED' : 'SUBMITTED', paymentId: p.id, module: 'M2', obligations: ['O2'], actorId: actorId,
       result: ev.tier === 3 ? 'fire' : 'info',
-      detail: (editingId ? 'Resubmitted' : 'Submitted') + ' to the checker. PCAP pre-check: Tier ' + ev.tier + '. ' + ev.statement[0],
+      detail: (stopped ? (editingId ? 'Fixed and keyed again, but not sent to the checker' : 'Keyed, but not sent to the checker') : (editingId ? 'Resubmitted' : 'Submitted') + ' to the checker') +
+        '. PCAP pre-check: Tier ' + ev.tier + '. ' + ev.statement[0],
       data: { tier: ev.tier, hits: ev.hits, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal }
     });
     E.RULE_ORDER.forEach(function (k) {
@@ -220,6 +237,66 @@
         data: { code: ev.override.code, mapped: ev.override.valid }
       });
     }
+    return p;
+  }
+
+  /* The maker sends a payment to the checker. PCAP refuses a stopped one. */
+  function submitInstruction(instr, actorId, editingId) {
+    var ev = evaluateInstr(instr);
+    if (ev.tier === 3) throw new Error(STOP_TO_CHECKER);
+    var p = recordInstruction(instr, actorId, editingId, ev, false);
+    save();
+    return p;
+  }
+
+  /* A stopped payment waits for Operational Risk, with who referred it, from which stage and why. */
+  function hold(p, ev, actorId, reason, stage, dwell) {
+    p.status = 'HELD';
+    p.heldAt = nowISO();
+    p.heldDate = today();
+    p.holdReasons = ev.tierReasons.slice();
+    p.atHold = snapEval(ev);
+    p.referral = { by: actorId, stage: stage, reason: reason, at: p.heldAt };
+    logEvent({
+      type: 'HELD', paymentId: p.id, module: 'M2', obligations: ['O2'], actorId: actorId, result: 'fire',
+      rule: ev.hits.indexOf('R-01') >= 0 ? 'R-01' : ev.hits[0] || null,
+      detail: 'Tier 3 hard stop. Referred to Operational Risk by ' + userName(actorId) + ' (' + STAGE_LABEL[stage] + ')' +
+        (dwell != null ? ' after ' + U.fmtSec(dwell) + ' on the consequence screen' : '') + '. Reason: ' + sentence(reason) + ' Rules: ' + ev.hits.join(', ') + '.',
+      data: { tier: 3, hits: ev.hits, stage: stage, reason: reason, dwellSec: dwell, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal }
+    });
+  }
+
+  /* The maker's other way forward for a stopped payment: refer it to Operational Risk with a reason. It never goes to the checker. */
+  function referInstruction(instr, actorId, reason, editingId) {
+    var ev = evaluateInstr(instr);
+    if (ev.tier !== 3) throw new Error('Only a stopped payment goes to Operational Risk. Send this one to the checker.');
+    var r = needReason(reason, 'why you think it is right');
+    var p = recordInstruction(instr, actorId, editingId, ev, true);
+    hold(p, ev, actorId, r, 'maker', null);
+    save();
+    return p;
+  }
+
+  /* The checker or the approver refers a payment that PCAP now stops (at the approver, usually a blind re-key that failed twice). */
+  function refer(id, actorId, reason, info) {
+    info = info || {};
+    var p = payment(id);
+    if (!p || (p.status !== 'SUBMITTED' && p.status !== 'CHECKED')) throw new Error('Only a payment waiting for the checker or the approver can be referred from there.');
+    var stage = p.status === 'SUBMITTED' ? 'checker' : 'approver';
+    var ev = currentEval(p);
+    if (ev.tier !== 3) throw new Error('Only a stopped payment goes to Operational Risk.');
+    if (stage === 'approver' && !ev.gate.open) throw new Error('The M3 gate is closed for this approver. Return the payment to the maker for reassignment first.');
+    var r = needReason(reason, 'a reason for Operational Risk');
+    var dwell = stage === 'approver' ? Math.max(0, +info.dwellSec || 0) : null;
+    if (stage === 'approver') {
+      if (!p.approval || p.approval.version !== p.version) p.approval = { version: p.version, openedAt: nowISO(), attempts: [], natures: [], rekey: null, rekeyKind: null, revealedAt: null, gateOpen: ev.gate.open };
+      p.approval.decision = 'escalate';
+      p.approval.decidedAt = nowISO();
+      p.approval.dwellSec = dwell;
+      p.approval.note = r;
+    }
+    hold(p, ev, actorId, r, stage, dwell);
+    if (stage === 'approver') addM4Sample(p, ev, 'escalate', dwell);
     save();
     return p;
   }
@@ -227,6 +304,7 @@
   function checkPayment(id, actorId, note) {
     var p = payment(id);
     if (!p || p.status !== 'SUBMITTED') throw new Error('Payment is not waiting for a checker.');
+    if (currentEval(p).tier === 3) throw new Error(STOP_TO_APPROVER);
     p.status = 'CHECKED';
     p.checkedAt = nowISO();
     p.checkerNote = note || '';
@@ -239,9 +317,17 @@
     return p;
   }
 
-  function returnToMaker(id, actorId, reason, stage) {
+  /* info.dwellSec: the approver's time on screen, so a return after a failed re-key still counts in M4. */
+  function returnToMaker(id, actorId, reason, stage, info) {
     var p = payment(id);
     if (!p) throw new Error('Payment not found.');
+    if (stage === 'approver' && info && info.dwellSec != null && p.approval && p.approval.version === p.version && p.approval.revealedAt) {
+      var ev = currentEval(p);
+      p.approval.decision = 'return';
+      p.approval.decidedAt = nowISO();
+      p.approval.dwellSec = Math.max(0, +info.dwellSec || 0);
+      addM4Sample(p, ev, 'return', p.approval.dwellSec);
+    }
     p.status = 'RETURNED';
     p.returnedAt = nowISO();
     p.returnReason = reason || '';
@@ -306,7 +392,7 @@
       data: { attempt: p.approval.attempts.length, amount: amount, nature: nature || null, computed: ev.consequence.externalTotal, computedNature: rk.computedNature, kind: p.approval.rekeyKind }
     });
     if (rk.status === 'fire') {
-      logEvent({ type: 'ESCALATED', paymentId: id, module: 'M2', rule: 'R-07', result: 'fire', actorId: 'PCAP', detail: 'Second re-key mismatch. Payment escalated to Tier 3.' });
+      logEvent({ type: 'ESCALATED', paymentId: id, module: 'M2', rule: 'R-07', result: 'fire', actorId: 'PCAP', detail: 'Second re-key mismatch. Payment escalated to Tier 3. It cannot be released: return it to the maker or refer it to Operational Risk.' });
     }
     save();
     return rk;
@@ -333,7 +419,7 @@
     if (ev.tier >= 2 && dwellSec < E.DEFAULT_CONFIG.fastLookSec) flags.push('fast look');
     if (ev.tier === 2 && decision === 'approve' && dwellSec < E.DEFAULT_CONFIG.fastApproveSec) flags.push('approved within 5 s of the Tier 2 warning');
     S.state.m4.current.push({
-      ts: nowISO(), team: team, approverId: p.approverId, paymentId: p.id, tier: ev.tier,
+      ts: nowISO(), team: team, approverId: p.approverId, makerId: p.makerId, paymentId: p.id, tier: ev.tier,
       initialTier: p.atSubmit ? p.atSubmit.tier : ev.tier,
       dwellSec: Math.round(dwellSec * 10) / 10, rekey: kind, decision: decision, live: !S.seeding
     });
@@ -344,12 +430,13 @@
     });
   }
 
-  function doRelease(p, ev, actorId, viaOpRisk) {
+  /* viaAcceptance: a stopped payment released by the Head of Loan Ops under a risk acceptance (no approver release). */
+  function doRelease(p, ev, actorId, viaAcceptance) {
     var expected = ev.expected.remainingTotal;
     E.applyRelease(loan(p.instr.loanId), p.instr.valueDate, ev.consequence);
     var ap = user(p.approverId);
     var certCurrent = true;
-    if (ev.override.used && ev.override.valid && ap) {
+    if (!viaAcceptance && ev.override.used && ev.override.valid && ap) {
       var type = (E.byId(S.state.ctx.register, ev.override.entryId) || {}).certType || ev.override.entryId;
       var c = (ap.certs || []).filter(function (x) { return x.type === type; })[0];
       certCurrent = !!(c && c.validUntil >= today());
@@ -364,10 +451,10 @@
     p.expectedAtRelease = expected;
     p.releasedTier = ev.tier;
     p.releasedHits = ev.hits.slice();
-    p.viaOpRisk = !!viaOpRisk;
+    p.viaAcceptance = !!viaAcceptance;
     p.overrideValidAtRelease = ev.override.valid;
     p.overrideUsedAtRelease = ev.override.used;
-    p.certCurrentAtRelease = certCurrent;
+    p.certCurrentAtRelease = viaAcceptance ? null : certCurrent;
     p.atRelease = snapEval(ev);
   }
 
@@ -375,7 +462,7 @@
     var p = payment(id);
     var ev = currentEval(p);
     if (!ev.gate.open) throw new Error('The M3 gate is closed for this approver.');
-    if (ev.tier === 3) throw new Error('Tier 3 hard stop. Only Operational Risk can release this payment.');
+    if (ev.tier === 3) throw new Error('Tier 3 hard stop. You cannot release a stopped payment. Return it to the maker, or refer it to Operational Risk with a reason.');
     if (ev.tier === 2 && (!p.approval || p.approval.rekey !== 'pass')) throw new Error('Tier 2 needs a matching blind re-key first.');
     if (ev.tier === 2 && !info.confirmed) throw new Error('Tick the confirmation first.');
     var dwell = Math.max(0, +info.dwellSec || 0);
@@ -394,79 +481,157 @@
     return p;
   }
 
-  function approverEscalate(id, info) {
+  /* An earlier Operational Risk decision on the same payment stays on record when a new round starts. */
+  function archiveOpRisk(p) {
+    if (!p.opRisk) return;
+    p.opRiskHistory = p.opRiskHistory || [];
+    p.opRiskHistory.push(p.opRisk);
+    p.opRisk = null;
+  }
+
+  /* Operational Risk (second line) assesses a stopped payment: a real error goes back to the maker. */
+  function opRiskReject(id, actorId, reason, decideSec) {
     var p = payment(id);
-    var ev = currentEval(p);
-    if (ev.tier !== 3) throw new Error('Only Tier 3 payments go to Operational Risk.');
-    if (!ev.gate.open) throw new Error('The M3 gate is closed. Return the payment to the maker for reassignment first.');
-    var dwell = Math.max(0, +info.dwellSec || 0);
-    p.status = 'HELD';
-    p.heldAt = nowISO();
-    p.heldDate = today();
-    p.holdReasons = ev.tierReasons.slice();
-    p.atHold = snapEval(ev);
-    p.approval.decision = 'escalate';
-    p.approval.decidedAt = nowISO();
-    p.approval.dwellSec = dwell;
-    p.approval.note = info.note || '';
+    if (!p || p.status !== 'HELD') throw new Error('Payment is not waiting for Operational Risk.');
+    if (roleOf(actorId) !== 'oprisk') throw new Error('Only Operational Risk assesses a stopped payment.');
+    var r = needReason(reason);
+    var minutes = minutesSince(p.heldAt);
+    archiveOpRisk(p);
+    p.opRisk = { decision: 'reject', category: 'Confirmed error', reason: r, at: nowISO(), by: actorId, minutesHeld: minutes, decideSec: decideSec || null };
+    p.status = 'RETURNED';
+    p.returnedAt = nowISO();
+    p.returnReason = 'Operational Risk: ' + r;
+    p.returnedBy = actorId;
+    p.returnStage = 'oprisk';
     logEvent({
-      type: 'HELD', paymentId: id, module: 'M2', obligations: ['O2'], actorId: p.approverId, result: 'fire',
-      rule: ev.hits.indexOf('R-01') >= 0 ? 'R-01' : ev.hits[0] || null,
-      detail: 'Tier 3 hard stop. Sent to Operational Risk by ' + userName(p.approverId) + ' after ' + U.fmtSec(dwell) + ' on the consequence screen. Rules: ' + ev.hits.join(', ') + '.' + (info.note ? ' Approver note: ' + info.note : ''),
-      data: { tier: 3, hits: ev.hits, dwellSec: dwell, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal }
+      type: 'OPRISK_REJECTED', paymentId: id, module: 'M2', obligations: ['O2'], actorId: actorId, result: 'pass',
+      detail: 'Assessed by Operational Risk as a real error and returned to the maker after ' + minutes + ' min. Reason: ' + r,
+      data: { minutesHeld: minutes }
     });
-    addM4Sample(p, ev, 'escalate', dwell);
     save();
     return p;
   }
 
-  /* Releasing a Tier 3 hold is a documented risk acceptance (L5 slide 41): the first-line owner (Head of Loan Ops by
-     default) owns the risk, Operational Risk challenges and records it, and Internal Audit reviews it. */
-  function opRiskRelease(id, actorId, category, reason, decideSec, opts) {
+  /* Or Operational Risk records a documented risk acceptance (L5 slide 41). It cannot release the money (report 5.5):
+     the payment now waits for the Head of Loan Ops, the first-line owner named in it, to decide on release. */
+  function opRiskAccept(id, actorId, category, reason, decideSec, opts) {
     opts = opts || {};
     var p = payment(id);
-    if (!p || p.status !== 'HELD') throw new Error('Payment is not on hold.');
-    if (!reason || reason.trim().length < 15) throw new Error('Record a reason of at least 15 characters.');
+    if (!p || p.status !== 'HELD') throw new Error('Payment is not waiting for Operational Risk.');
     var ev = currentEval(p);
     var acc = E.riskAcceptance({
       paymentId: id, ev: ev, category: category, reason: reason, ownerId: opts.ownerId || 'U-HLO', recordedById: actorId,
-      users: S.state.ctx.users, businessDate: today(), makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId
+      users: S.state.ctx.users, businessDate: today(), makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId,
+      referredById: p.referral ? p.referral.by : null
     });
     if (!acc.ok) throw new Error(acc.problems.join(' '));
     S.state.seq.ra = (S.state.seq.ra || 0) + 1;
     var rec = acc.record;
     rec.id = 'RA-' + ('000' + S.state.seq.ra).slice(-4);
     rec.at = nowISO();
-    var minutes = Math.round((now() - new Date(p.heldAt)) / 6000) / 10;
+    var minutes = minutesSince(p.heldAt);
+    archiveOpRisk(p);
+    p.status = 'ACCEPTED';
+    p.acceptedAt = rec.at;
+    p.opRisk = { decision: 'accept', category: category, reason: rec.reason, at: rec.at, by: actorId, minutesHeld: minutes, decideSec: decideSec || null, acceptance: rec };
     logEvent({
       type: 'RISK_ACCEPTED', paymentId: id, module: 'M2', obligations: ['O1', 'O2'], actorId: actorId, result: 'info',
-      detail: 'Risk acceptance ' + rec.id + ' recorded by ' + userName(actorId) + ' (Operational Risk, second line). Risk owner: ' + userName(rec.ownerId) + ' (first line). ' + category + '. Reason: ' + rec.reason + ' Assessed by PCAP at Tier ' + ev.tier + (ev.hits.length ? ' (' + ev.hits.join(', ') + ')' : '') + '. Scope: this payment only. Expires ' + E.fmtDate(rec.expires) + '. Follow-up: ' + rec.followUp + '.',
-      data: { acceptance: rec.id, ownerId: rec.ownerId, category: category, expires: rec.expires, assessed: rec.assessed }
-    });
-    doRelease(p, ev, actorId, true);
-    p.opRisk = { decision: 'release', category: category, reason: rec.reason, at: nowISO(), by: actorId, minutesHeld: minutes, decideSec: decideSec || null, acceptance: rec };
-    logEvent({
-      type: 'OPRISK_RELEASED', paymentId: id, module: 'M2', obligations: ['O2'], actorId: actorId, result: 'info',
-      detail: 'Released by Operational Risk under risk acceptance ' + rec.id + ' (' + category + ') after ' + minutes + ' min on hold. Reason: ' + rec.reason + ' ' + E.fmtUSD(ev.consequence.externalTotal) + ' left the bank.',
-      data: { category: category, acceptance: rec.id, minutesHeld: minutes, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal, hits: ev.hits }
+      detail: 'Risk acceptance ' + rec.id + ' recorded by ' + userName(actorId) + ' (Operational Risk, second line) after ' + minutes + ' min. Risk owner: ' + userName(rec.ownerId) + ' (first line). ' + category + '. Reason: ' + sentence(rec.reason) +
+        ' Assessed by PCAP at Tier ' + ev.tier + (rec.assessed.rules.length ? ' (' + rec.assessed.rules.join(', ') + ')' : '') + '. Scope: this payment only. Expires ' + E.fmtDate(rec.expires) + '. Follow-up: ' + rec.followUp +
+        '. Operational Risk cannot release it. It waits for a release decision by ' + userName(rec.ownerId) + '.',
+      data: { acceptance: rec.id, ownerId: rec.ownerId, category: category, expires: rec.expires, assessed: rec.assessed, minutesHeld: minutes }
     });
     save();
     return p;
   }
 
-  /* Every Tier 3 release with its risk acceptance, newest first, for the Board and Internal Audit. */
+  /* Only the Head of Loan Ops releases a stopped payment, as a fresh first-line decision under the risk acceptance
+     (report 5.5). PCAP re-runs the rules and checks the releaser's authority and independence first, and logs both. */
+  function ownerRelease(id, actorId, opts) {
+    opts = opts || {};
+    var p = payment(id);
+    if (!p || p.status !== 'ACCEPTED') throw new Error('Only a stopped payment that Operational Risk has signed off waits for a release decision.');
+    var acc = p.opRisk && p.opRisk.acceptance;
+    var ev = currentEval(p);
+    var chk = E.releaseCheck({
+      releaserId: actorId, acceptance: acc, ev: ev, users: S.state.ctx.users, businessDate: today(),
+      makerId: p.makerId, checkerId: p.checkerId, approverId: p.approverId, referredById: p.referral ? p.referral.by : null
+    });
+    ['R-03', 'R-04', 'R-01', 'R-02'].forEach(function (k) {
+      var r = ev.results[k];
+      if (!r || r.status === 'na') return;
+      logEvent({ type: 'RULE_RESULT', paymentId: id, module: E.RULES[k].module, rule: k, result: r.status, actorId: 'PCAP', detail: 'At release: ' + r.message, data: { atRelease: true } });
+    });
+    if (!chk.ok) {
+      /* A refused release is evidence too: who tried, and why PCAP refused. */
+      var failed = ['R-05', 'R-06'].filter(function (k) { return chk.results[k].status === 'fire'; });
+      logEvent({
+        type: 'BLOCKED_ATTEMPT', paymentId: id, module: 'M3', rule: failed[0] || null, result: 'fire', actorId: actorId,
+        detail: 'Release blocked. ' + chk.problems.join(' '), data: { releaser: true, rules: failed }
+      });
+      save();
+      throw new Error(chk.problems.join(' '));
+    }
+    ['R-05', 'R-06'].forEach(function (k) {
+      logEvent({ type: 'RELEASE_CHECK', paymentId: id, module: 'M3', rule: k, result: 'pass', actorId: actorId, detail: 'Releaser allowed. ' + chk.results[k].message, data: { releaser: true } });
+    });
+    doRelease(p, ev, actorId, true);
+    acc.status = 'released';
+    acc.release = { by: actorId, at: nowISO(), date: today(), rulesAtRelease: chk.rulesNow.slice() };
+    p.ownerDecision = { decision: 'release', by: actorId, at: nowISO(), decideSec: opts.decideSec || null };
+    logEvent({
+      type: 'OWNER_RELEASED', paymentId: id, module: 'M2', obligations: ['O1', 'O2'], actorId: actorId, result: 'info',
+      detail: 'Released by ' + userName(actorId) + ' (Head of Loan Ops, first line) as a fresh decision under risk acceptance ' + acc.id + ' (' + acc.category + '). PCAP re-ran the rules and checked the releaser\'s authority and independence first.' +
+        (chk.rulesNow.length ? ' Rules still failing, as assessed: ' + chk.rulesNow.join(', ') + '.' : ' No rule fails now.') + ' ' + E.fmtUSD(ev.consequence.externalTotal) + ' left the bank.',
+      data: { acceptance: acc.id, external: ev.consequence.externalTotal, expected: ev.expected.remainingTotal, hits: chk.rulesNow, minutesHeld: minutesSince(p.heldAt) }
+    });
+    save();
+    return p;
+  }
+
+  /* The Head of Loan Ops can also decide not to release: the payment goes back to the maker. */
+  function ownerDecline(id, actorId, reason) {
+    var p = payment(id);
+    if (!p || p.status !== 'ACCEPTED') throw new Error('Only a stopped payment that Operational Risk has signed off waits for a release decision.');
+    var acc = p.opRisk && p.opRisk.acceptance;
+    if (roleOf(actorId) !== 'owner' || (acc && acc.ownerId !== actorId)) throw new Error('Only the Head of Loan Ops named as risk owner decides on the release of a stopped payment.');
+    var r = needReason(reason);
+    acc.status = 'declined';
+    acc.release = { declined: true, by: actorId, at: nowISO(), date: today(), reason: r };
+    p.ownerDecision = { decision: 'decline', by: actorId, at: nowISO(), reason: r };
+    p.status = 'RETURNED';
+    p.returnedAt = nowISO();
+    p.returnReason = 'Head of Loan Ops: ' + r;
+    p.returnedBy = actorId;
+    p.returnStage = 'owner';
+    logEvent({
+      type: 'OWNER_DECLINED', paymentId: id, module: 'M2', obligations: ['O1', 'O2'], actorId: actorId, result: 'pass',
+      detail: 'Not released by ' + userName(actorId) + ' (Head of Loan Ops) under risk acceptance ' + acc.id + '. Returned to the maker. Reason: ' + r
+    });
+    save();
+    return p;
+  }
+
+  /* Every risk acceptance, newest first, for the Board, the risk owner and Internal Audit (earlier rounds included). */
   function riskAcceptances() {
-    return S.state.payments.filter(function (p) { return p.opRisk && p.opRisk.acceptance; })
-      .map(function (p) { return { payment: p, acceptance: p.opRisk.acceptance }; })
-      .sort(function (a, b) { return a.acceptance.at < b.acceptance.at ? 1 : -1; });
+    var out = [];
+    S.state.payments.forEach(function (p) {
+      (p.opRiskHistory || []).concat(p.opRisk ? [p.opRisk] : []).forEach(function (o) { if (o && o.acceptance) out.push({ payment: p, acceptance: o.acceptance }); });
+    });
+    return out.sort(function (a, b) { return a.acceptance.at < b.acceptance.at ? 1 : -1; });
+  }
+  /* An acceptance by its ID (RA-0001), or the latest one on a payment. */
+  function acceptanceRef(ref) {
+    var all = riskAcceptances();
+    return all.filter(function (x) { return x.acceptance.id === ref; })[0] || all.filter(function (x) { return x.payment.id === ref; })[0] || null;
   }
 
   /* Internal Audit (third line) records that it reviewed a risk acceptance: no issue, or a finding with a reason.
      This is audit work, not running a control, so it is the one thing the read-only audit role can record. */
-  function auditReviewAcceptance(paymentId, actorId, outcome, note) {
+  function auditReviewAcceptance(ref, actorId, outcome, note) {
     if (roleOf(actorId) !== 'audit') throw new Error('Only Internal Audit (third line) records the review of a risk acceptance.');
-    var p = payment(paymentId);
-    var acc = p && p.opRisk && p.opRisk.acceptance;
+    var hit = acceptanceRef(ref);
+    var acc = hit && hit.acceptance;
     if (!acc) throw new Error('There is no risk acceptance on this payment.');
     if (acc.review) throw new Error(acc.id + ' was already reviewed by ' + userName(acc.review.by) + '.');
     var finding = outcome === 'finding';
@@ -474,7 +639,7 @@
     if (finding && text.length < E.DEFAULT_CONFIG.reasonMinChars) throw new Error('Describe the finding in at least ' + E.DEFAULT_CONFIG.reasonMinChars + ' characters, so the owner knows what to fix.');
     acc.review = { by: actorId, at: nowISO(), date: today(), outcome: finding ? 'finding' : 'no-issue', note: text };
     logEvent({
-      type: 'ACCEPTANCE_REVIEWED', paymentId: paymentId, module: 'M6', obligations: ['O1', 'O2'], actorId: actorId, result: finding ? 'fire' : 'pass',
+      type: 'ACCEPTANCE_REVIEWED', paymentId: hit.payment.id, module: 'M6', obligations: ['O1', 'O2'], actorId: actorId, result: finding ? 'fire' : 'pass',
       detail: 'Internal Audit reviewed risk acceptance ' + acc.id + ' (risk owner ' + userName(acc.ownerId) + ', recorded by ' + userName(acc.recordedById) + '): ' + (finding ? 'finding raised. ' + text : 'no issue.' + (text ? ' ' + text : '')),
       data: { acceptance: acc.id, outcome: acc.review.outcome }
     });
@@ -492,9 +657,9 @@
     var items = [];
     var uid = roleUserId(role);
     var bd = today();
-    if (role === 'maker' || role === 'checker' || role === 'approver' || role === 'oprisk') {
+    if (role === 'maker' || role === 'checker' || role === 'approver' || role === 'oprisk' || role === 'owner') {
       var n = waitingFor(role).length;
-      if (n) items.push({ route: 'desk', count: n, text: n + ' payment' + (n === 1 ? '' : 's') + ' waiting for you' });
+      if (n) items.push({ route: 'desk', count: n, text: role === 'owner' ? n + ' release decision' + (n === 1 ? '' : 's') + ' waiting for you' : n + ' payment' + (n === 1 ? '' : 's') + ' waiting for you' });
     }
     if (role === 'owner') {
       var reg = S.state.ctx.register;
@@ -522,26 +687,6 @@
 
   /* This week's work, counted from the event log. */
   function weekSummary() { return E.weekSummary(S.state.events, S.state.m4.weekStart); }
-
-  function opRiskReject(id, actorId, reason, decideSec) {
-    var p = payment(id);
-    if (!p || p.status !== 'HELD') throw new Error('Payment is not on hold.');
-    if (!reason || reason.trim().length < 15) throw new Error('Record a reason of at least 15 characters.');
-    var minutes = Math.round((now() - new Date(p.heldAt)) / 6000) / 10;
-    p.opRisk = { decision: 'reject', category: 'Confirmed error', reason: reason.trim(), at: nowISO(), by: actorId, minutesHeld: minutes, decideSec: decideSec || null };
-    p.status = 'RETURNED';
-    p.returnedAt = nowISO();
-    p.returnReason = 'Operational Risk: ' + reason.trim();
-    p.returnedBy = actorId;
-    p.returnStage = 'oprisk';
-    logEvent({
-      type: 'OPRISK_REJECTED', paymentId: id, module: 'M2', obligations: ['O2'], actorId: actorId, result: 'pass',
-      detail: 'Hold confirmed as a real error and returned to the maker after ' + minutes + ' min. Reason: ' + reason.trim(),
-      data: { minutesHeld: minutes }
-    });
-    save();
-    return p;
-  }
 
   /* ------------------------------------------------------------ M1 register actions */
 
@@ -617,7 +762,7 @@
     return {
       businessDate: today(), nowTime: nowHHMM(), register: S.state.ctx.register, users: S.state.ctx.users,
       payments: healthPayments(), reconRuns: S.state.reconRuns, regressionRuns: S.state.regressionRuns,
-      approvals: S.state.payments.filter(function (p) { return p.status === 'RELEASED' && p.overrideUsedAtRelease && !p.viaOpRisk; })
+      approvals: S.state.payments.filter(function (p) { return p.status === 'RELEASED' && p.overrideUsedAtRelease && !p.viaAcceptance; })
         .map(function (p) { return { override: true, certCurrent: p.certCurrentAtRelease !== false }; })
     };
   }
@@ -647,7 +792,7 @@
     var escapes = rec.rows.filter(function (r) {
       if (!r.isBreak) return false;
       var p = payment(r.id);
-      return p && (!p.releasedHits || !p.releasedHits.length) && !p.viaOpRisk;
+      return p && (!p.releasedHits || !p.releasedHits.length) && !p.viaAcceptance;
     });
     logEvent({
       type: 'RECON_RUN', module: 'M5', rule: 'R-09', obligations: ['O7', 'O2'], actorId: actorId,
@@ -800,15 +945,12 @@
     S.state.regressionRuns.push({ date: E.addDays(bd, -12), at: nowISO(), by: 'U-TEC', pass: rr.pass, detail: rr.detail, tier: rr.tier, hits: rr.hits });
     logEvent({ type: 'CONTROL_TEST', module: 'M5', rule: 'R-09', obligations: ['O7'], actorId: 'U-TEC', result: rr.pass ? 'pass' : 'fire', detail: 'Revlon replay regression test ' + (rr.pass ? 'passed' : 'FAILED') + ': ' + rr.detail + '. Rules fired: ' + rr.hits.join(', ') + '.', data: { pass: rr.pass } });
 
-    /* Yesterday: an extra zero held at Tier 3 and rejected, then the corrected payment released. */
+    /* Yesterday: an extra zero stopped when it was keyed. The maker trusted the notice and referred it, Operational Risk
+       returned it as a real error, and the corrected payment was released. */
     S.state.seq.pay = 997;
     setClock(y, '14:02');
-    var p1 = submitInstruction({ loanId: 'LN-1008', operation: 'INTEREST', valueDate: y, interest: 8450000, principal: 0, overrideCode: '', fields: base, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', makerNote: 'Quarterly interest.' }, 'U-MK1');
-    setClock(y, '14:09'); checkPayment(p1.id, 'U-CK1', 'Amounts match the instruction.');
-    setClock(y, '14:15'); approverOpen(p1.id);
-    setClock(y, '14:16'); approverRekey(p1.id, 845000, 'INTEREST'); approverRekey(p1.id, 845000, 'INTEREST'); approverReveal(p1.id);
-    setClock(y, '14:17'); approverEscalate(p1.id, { dwellSec: 41, note: 'Notice to lenders says USD 845,000. Instruction would send ten times that.' });
-    setClock(y, '14:41'); opRiskReject(p1.id, 'U-OR1', 'Extra zero confirmed with the maker. Returned for correction.', 95);
+    var p1 = referInstruction({ loanId: 'LN-1008', operation: 'INTEREST', valueDate: y, interest: 8450000, principal: 0, overrideCode: '', fields: base, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', makerNote: 'Quarterly interest.' }, 'U-MK1', 'Amount keyed from the agent notice as received. Please check it.');
+    setClock(y, '14:26'); opRiskReject(p1.id, 'U-OR1', 'Extra zero confirmed with the agent. The notice should say USD 845,000. Returned for correction.', 95);
     setClock(y, '14:58'); cancelPayment(p1.id, 'U-MK1');
     setClock(y, '15:05');
     var p2 = submitInstruction({ loanId: 'LN-1008', operation: 'INTEREST', valueDate: y, interest: 845000, principal: 0, overrideCode: '', fields: base, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1', makerNote: 'Corrected amount, replaces ' + p1.id + '.' }, 'U-MK1');
@@ -899,18 +1041,17 @@
     var out = {};
     S.seeding = true;
     try {
-      /* Internal Audit and the risk owner: a stopped payment released under a risk sign-off, waiting for review. */
-      var x = submitInstruction(instr({ loanId: 'LN-1003', interest: 487500, note: 'Monthly interest, paid five days early because the borrower asked.' }), 'U-MK1');
-      checkPayment(x.id, 'U-CK1', 'Early payment agreed with the agent. Notice attached.');
-      approverOpen(x.id); approverRekey(x.id, 487500, 'INTEREST'); approverReveal(x.id);
-      approverEscalate(x.id, { dwellSec: 34, note: 'The agent notice moves this interest to today. The loan schedule still shows it in five days.' });
-      opRiskRelease(x.id, 'U-OR1', E.ACCEPT_CATEGORIES[1], 'Borrower asked to pay the monthly interest early. The agent notice confirms the amount and the date.', 140, { ownerId: 'U-HLO' });
+      /* Internal Audit: a stopped payment that Operational Risk signed off and the Head of Loan Ops released, waiting for review. */
+      var x = referInstruction(instr({ loanId: 'LN-1003', interest: 487500, note: 'Monthly interest, paid five days early because the borrower asked.' }), 'U-MK1', 'The borrower asked to pay early. The agent notice moves this interest to today.');
+      opRiskAccept(x.id, 'U-OR1', E.ACCEPT_CATEGORIES[1], 'Borrower asked to pay the monthly interest early. The agent notice confirms the amount and the date.', 140, { ownerId: 'U-HLO' });
+      ownerRelease(x.id, 'U-HLO', { decideSec: 45 });
       out.signedOff = x.id;
-      /* Operational Risk: the 2020 payment, stopped and waiting for a decision. */
-      var r = submitInstruction(E.REPLAY.instruction(), 'U-MK1');
-      checkPayment(r.id, 'U-CK1', 'Principal set to wash.');
-      approverOpen(r.id); approverRekey(r.id, 7820000, 'INTEREST'); approverRekey(r.id, 7820000, 'INTEREST'); approverReveal(r.id);
-      approverEscalate(r.id, { dwellSec: 38, note: 'My notice says USD 7.8M of interest only. This would send the principal out.' });
+      /* Head of Loan Ops: a false alarm (the schedule still has the rate before the reset), signed off and waiting for the release decision. */
+      var f = referInstruction(instr({ loanId: 'LN-1009', interest: 1365000, note: 'Quarterly interest at the new rate in the agent notice.' }), 'U-MK1', 'The agent notice has the new rate after the reset. The loan schedule still has the old rate.');
+      opRiskAccept(f.id, 'U-OR1', E.ACCEPT_CATEGORIES[0], 'False alarm. The rate reset on the first of the month and the agent notice is right. The schedule line still has the old rate.', 180, { ownerId: 'U-HLO' });
+      out.toRelease = f.id;
+      /* Operational Risk: the 2020 payment, stopped when it was keyed and referred by the maker, waiting for an assessment. */
+      var r = referInstruction(E.REPLAY.instruction(), 'U-MK1', 'Set up as WA-01 for the roll-up, as we always do. Please check it.');
       out.stopped = r.id;
       /* Approver: one that needs a closer look, then a routine one (the newest opens first). */
       var b = submitInstruction(instr({ loanId: 'LN-1004', operation: 'INTEREST_VIA_WASH', interest: 2145000, principal: 310000000, overrideCode: 'WA-01', fields: wash, note: 'Roll-up. Interest to lenders, principal stays in the bank (WA-01).' }), 'U-MK1');
@@ -919,7 +1060,7 @@
       checkPayment(a.id, 'U-CK1', '');
       out.closerLook = b.id;
       out.routine = a.id;
-      /* Checker: a routine instalment waiting. */
+      /* Checker: a scheduled instalment waiting. Principal leaves the bank, so it needs a closer look. */
       var c = submitInstruction(instr({ loanId: 'LN-1002', operation: 'PRINCIPAL_AND_INTEREST', interest: 618750, principal: 12500000, note: 'Quarterly instalment.' }), 'U-MK1');
       out.toCheck = c.id;
     } finally {
@@ -979,8 +1120,11 @@
     approverRekey: approverRekey,
     approverReveal: approverReveal,
     approverApprove: approverApprove,
-    approverEscalate: approverEscalate,
-    opRiskRelease: opRiskRelease,
+    referInstruction: referInstruction,
+    refer: refer,
+    opRiskAccept: opRiskAccept,
+    ownerRelease: ownerRelease,
+    ownerDecline: ownerDecline,
     opRiskReject: opRiskReject,
     riskAcceptances: riskAcceptances,
     auditReviewAcceptance: auditReviewAcceptance,

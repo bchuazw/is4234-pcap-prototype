@@ -19,20 +19,14 @@ function freshStore() {
   return S;
 }
 
+/* The 2020 payment is stopped when keyed, so the maker refers it to Operational Risk with a reason. */
 function replayToHold(S) {
-  const p = S.submitInstruction(E.REPLAY.instruction(), 'U-MK1');
-  S.checkPayment(p.id, 'U-CK1', 'Principal set to wash.');
-  S.approverOpen(p.id);
-  S.approverRekey(p.id, 7820000, 'INTEREST');
-  S.approverRekey(p.id, 7820000, 'INTEREST');
-  S.approverReveal(p.id);
-  S.approverEscalate(p.id, { dwellSec: 30, note: '' });
-  return p;
+  return S.referInstruction(E.REPLAY.instruction(), 'U-MK1', 'Set up as WA-01 for the roll-up. Please check it.');
 }
 
 test('Board estimates come from the synthetic month and the synthetic numbers are pinned', () => {
   const run = E.runSyntheticTest({ seed: 4234 });
-  assert.equal(run.fingerprint, '60c513af', 'the 5.8 results only move when the rules or the test model change');
+  assert.equal(run.fingerprint, '4590b4af', 'the 5.8 results only move when the rules or the test model change');
   const v = E.valueEstimate(run.summary);
   assert.equal(v.n, 500);
   assert.equal(v.tier1, 328, 'Tier 1 payments get no extra step');
@@ -40,11 +34,11 @@ test('Board estimates come from the synthetic month and the synthetic numbers ar
   assert.equal(Math.round(v.tier1Share * 1000) / 10, 65.6, 'about 66% of payments are Tier 1, not 95%: workaround and principal payments are Tier 2 by policy');
   assert.equal(v.cleanShare, 0.95);
   assert.equal(v.policyTier2Clean, 145);
-  assert.equal(v.meanSec, 18.9);
+  assert.equal(v.meanSec, 17.7, 'a stopped payment never reaches the approver, so it adds no approver time');
   assert.equal(v.tier1MedianSec, 7.8);
-  assert.equal(v.tier23MedianSec, 45.7);
-  assert.equal(v.approverHoursPerMonth, 2.6);
-  assert.equal(v.opRiskHoursPerMonth, 3);
+  assert.equal(v.tier23MedianSec, 46.5);
+  assert.equal(v.approverHoursPerMonth, 2.4);
+  assert.equal(v.opRiskHoursPerMonth, 3.2, '17 stopped payments, each assumed referred to Operational Risk');
   assert.equal(v.stoppedBeforeRelease, 22);
   assert.equal(v.foundSameDay, 3);
   assert.equal(v.auditManualHoursPerQuarter, 8.3, '25 payments at 20 minutes each, an assumption');
@@ -83,7 +77,7 @@ test('the weekly summary counts work from the event log, keeps earlier context, 
   assert.equal(w.paymentsCovered, 4);
 });
 
-test('each role sees only what it has to act on: waiting payments, register items, holds and acceptances to review', () => {
+test('each role sees only what it has to act on: waiting payments, register items, holds, release decisions and acceptances to review', () => {
   const S = freshStore();
   assert.equal(S.todoCounts('approver').total, 0, 'the seeded payments are all done');
   const owner = S.todoCounts('owner');
@@ -92,20 +86,24 @@ test('each role sees only what it has to act on: waiting payments, register item
   const p = replayToHold(S);
   assert.deepEqual(S.waitingFor('oprisk').map((x) => x.id), [p.id]);
   assert.equal(S.todoCounts('oprisk').items.find((i) => i.route === 'desk').count, 1);
-  assert.equal(S.todoCounts('audit').total, 0, 'nothing released yet, nothing to review');
-  S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released to show the acceptance review.', 10, { ownerId: 'U-HLO' });
+  assert.equal(S.todoCounts('audit').total, 0, 'nothing signed off yet, nothing to review');
+  S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Accepted to show the acceptance review.', 10, { ownerId: 'U-HLO' });
   assert.equal(S.todoCounts('oprisk').items.filter((i) => i.route === 'desk').length, 0);
+  assert.equal(S.todoCounts('owner').items.find((i) => i.route === 'desk').count, 1, 'the Head of Loan Ops now has a release decision');
   assert.equal(S.todoCounts('audit').items.find((i) => i.route === 'oversight').count, 1, 'Internal Audit now has one acceptance to review');
+  S.ownerRelease(p.id, 'U-HLO');
+  assert.equal(S.todoCounts('owner').items.filter((i) => i.route === 'desk').length, 0);
   const w = S.weekSummary();
   assert.equal(w.acceptances, 1);
   assert.equal(w.heldReleased, 1);
+  assert.equal(w.referred.maker, 1);
 });
 
 test('Internal Audit records its review of a risk acceptance once, and a finding needs a reason', () => {
   const S = freshStore();
   const p = replayToHold(S);
-  S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released to show the acceptance review.', 10, { ownerId: 'U-HLO' });
-  assert.throws(() => S.auditReviewAcceptance(p.id, 'U-OR1', 'no-issue'), /Only Internal Audit/, 'the second line cannot review its own release');
+  S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Accepted to show the acceptance review.', 10, { ownerId: 'U-HLO' });
+  assert.throws(() => S.auditReviewAcceptance(p.id, 'U-OR1', 'no-issue'), /Only Internal Audit/, 'the second line cannot review its own acceptance');
   assert.throws(() => S.auditReviewAcceptance(p.id, 'U-IA1', 'finding', 'too short'), /at least 15 characters/);
   const acc = S.auditReviewAcceptance(p.id, 'U-IA1', 'finding', 'Reason does not say who confirmed the exception.');
   assert.equal(acc.review.outcome, 'finding');
@@ -128,11 +126,13 @@ test('the Board and Wipro\'s service manager are read-only: each has a home scre
   assert.equal(S.canRunControls('oprisk'), true);
   assert.equal(S.canRunControls('board'), false);
   const p = replayToHold(S);
-  S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released to show the acceptance review.', 10, { ownerId: 'U-HLO' });
+  S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Accepted to show the acceptance review.', 10, { ownerId: 'U-HLO' });
   assert.throws(() => S.auditReviewAcceptance(p.id, 'U-BRC', 'no-issue'), /Only Internal Audit/);
+  assert.throws(() => S.ownerRelease(p.id, 'U-BRC'), /not the Head of Loan Ops/, 'the Board cannot release');
+  assert.throws(() => S.ownerRelease(p.id, 'U-WSM'), /not the Head of Loan Ops/, 'nor can the provider');
 });
 
-test('the Tier 1 fast path removes no control: Tier 2 still needs the re-key and the confirmation, Tier 3 still needs Operational Risk', () => {
+test('the Tier 1 fast path removes no control: Tier 2 still needs the re-key and the confirmation, a stopped payment still cannot be released', () => {
   const S = freshStore();
   const bd = S.today();
   const lend = { FRONT: E.LENDERS, FUND: E.LENDERS, PRINCIPAL: E.LENDERS };

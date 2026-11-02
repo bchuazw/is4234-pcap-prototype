@@ -34,51 +34,70 @@ test('seeded demo state replays real flows: releases, a rejected hold and a bloc
   assert.equal(S.controlHealth().controls.length, 6);
 });
 
-test('Revlon replay through the desk: Tier 3, blind re-key escalates, Op Risk rejects, all steps tagged', () => {
+test('Revlon replay through the desk: stopped when keyed, cannot go to the checker, referred with a reason, Op Risk returns it, all steps tagged', () => {
   const S = freshStore();
   const E = globalThis.PCAP.engine;
-  const p = S.submitInstruction(E.REPLAY.instruction(), 'U-MK1');
+  const before = S.st().payments.length;
+  assert.throws(() => S.submitInstruction(E.REPLAY.instruction(), 'U-MK1'), /cannot go to the checker/);
+  assert.equal(S.st().payments.length, before, 'nothing is recorded when PCAP refuses to send it on');
+  assert.throws(() => S.referInstruction(E.REPLAY.instruction(), 'U-MK1', 'too short'), /15 characters/);
+  const p = S.referInstruction(E.REPLAY.instruction(), 'U-MK1', 'Set up as WA-01 for the roll-up. Please check it.');
   assert.equal(p.atSubmit.tier, 3);
+  assert.equal(p.status, 'HELD');
+  assert.equal(p.referral.stage, 'maker');
   const fired = eventsFor(S, p.id).filter((e) => e.type === 'RULE_RESULT' && e.result === 'fire').map((e) => e.rule).sort();
   assert.deepEqual(fired, ['R-01', 'R-02', 'R-04']);
-
-  S.checkPayment(p.id, 'U-CK1', 'Principal set to wash.');
-  const ev = S.approverOpen(p.id);
-  assert.equal(ev.gate.open, true);
-  assert.equal(S.approverRekey(p.id, 7820000).status, 'retry');
-  assert.equal(S.approverRekey(p.id, 7820000).status, 'fire');
-  S.approverReveal(p.id);
+  assert.throws(() => S.checkPayment(p.id, 'U-CK1', 'Principal set to wash.'), /not waiting for a checker/);
   assert.throws(() => S.approverApprove(p.id, { dwellSec: 20, confirmed: true }), /Tier 3 hard stop/);
-  S.approverEscalate(p.id, { dwellSec: 21, note: 'Notice says interest only.' });
-  assert.equal(S.payment(p.id).status, 'HELD');
   assert.throws(() => S.opRiskReject(p.id, 'U-OR1', 'too short'), /15 characters/);
+  assert.throws(() => S.opRiskReject(p.id, 'U-AP1', 'Principal would leave the bank on an interest-only date.'), /Only Operational Risk/);
   S.opRiskReject(p.id, 'U-OR1', 'Principal would leave the bank on an interest-only date.');
   assert.equal(S.payment(p.id).status, 'RETURNED');
 
   const evs = eventsFor(S, p.id);
   const types = evs.map((e) => e.type);
-  for (const t of ['SUBMITTED', 'RULE_RESULT', 'OVERRIDE_USE', 'CHECKED', 'GATE_CHECK', 'REKEY', 'ESCALATED', 'STATEMENT_SHOWN', 'HELD', 'BEHAVIOUR_SIGNAL', 'OPRISK_REJECTED']) {
-    assert.ok(types.includes(t), 'logged ' + t);
-  }
+  for (const t of ['SUBMITTED', 'RULE_RESULT', 'OVERRIDE_USE', 'HELD', 'OPRISK_REJECTED']) assert.ok(types.includes(t), 'logged ' + t);
+  for (const t of ['CHECKED', 'REKEY', 'RELEASED']) assert.ok(!types.includes(t), 'never reached the next step: ' + t);
+  const keyed = evs.find((e) => e.type === 'SUBMITTED');
+  assert.match(keyed.detail, /not sent to the checker/);
+  assert.match(keyed.detail, /USD 893,900,000 of PRINCIPAL/, 'evidence that the maker was shown the principal');
+  const held = evs.find((e) => e.type === 'HELD');
+  assert.equal(held.data.stage, 'maker');
+  assert.match(held.detail, /Referred to Operational Risk by Priya S\. \(the maker\)\. Reason: Set up as WA-01/);
+});
+
+test('a blind re-key that fails twice blocks the approver, and the payment can only go back or to Operational Risk', () => {
+  const S = freshStore();
+  const E = globalThis.PCAP.engine;
+  const wash = { FRONT: E.WASH, FUND: E.WASH, PRINCIPAL: E.WASH };
+  const p = S.submitInstruction({ loanId: 'LN-1004', operation: 'INTEREST_VIA_WASH', valueDate: S.today(), interest: 2145000, principal: 310000000, overrideCode: 'WA-01', fields: wash, makerId: 'U-MK1', checkerId: 'U-CK1', approverId: 'U-AP1' }, 'U-MK1');
+  S.checkPayment(p.id, 'U-CK1', '');
+  S.approverOpen(p.id);
+  assert.equal(S.approverRekey(p.id, 21450000, 'INTEREST').status, 'retry');
+  assert.equal(S.approverRekey(p.id, 21450000, 'INTEREST').status, 'fire');
+  S.approverReveal(p.id);
+  assert.throws(() => S.approverApprove(p.id, { dwellSec: 20, confirmed: true }), /cannot release a stopped payment/);
+  assert.throws(() => S.refer(p.id, 'U-AP1', ''), /15 characters/, 'a referral needs a reason');
+  S.refer(p.id, 'U-AP1', 'My notice says USD 21.45M. PCAP says USD 2.145M. Please check.', { dwellSec: 25 });
+  const q = S.payment(p.id);
+  assert.equal(q.status, 'HELD');
+  assert.equal(q.referral.stage, 'approver');
+  const evs = eventsFor(S, p.id);
   const rekeys = evs.filter((e) => e.type === 'REKEY');
-  assert.ok(rekeys.every((e) => e.module === 'M2' && e.rule === 'R-07' && e.obligations.includes('O2')));
-  const shown = evs.find((e) => e.type === 'STATEMENT_SHOWN');
-  assert.match(shown.detail, /USD 893,900,000 of PRINCIPAL/, 'evidence that the approver saw the principal');
+  assert.ok(rekeys.every((e) => e.module === 'M2' && e.rule === 'R-07' && e.obligations.includes('O2') && e.data.nature === 'INTEREST'));
+  assert.ok(evs.some((e) => e.type === 'ESCALATED'));
   const behaviour = evs.find((e) => e.type === 'BEHAVIOUR_SIGNAL');
   assert.equal(behaviour.module, 'M4');
   assert.deepEqual(behaviour.obligations, ['O2', 'O5']);
+  assert.equal(behaviour.data.decision, 'escalate');
 });
 
-test('if Operational Risk releases the replay anyway, the M5 same-day reconciliation shows the break', () => {
+test('if the replay is signed off and released anyway, the M5 same-day reconciliation shows the break', () => {
   const S = freshStore();
   const E = globalThis.PCAP.engine;
-  const p = S.submitInstruction(E.REPLAY.instruction(), 'U-MK1');
-  S.checkPayment(p.id, 'U-CK1', '');
-  S.approverOpen(p.id);
-  S.approverRekey(p.id, 7820000);
-  S.approverRekey(p.id, 7820000);
-  S.approverEscalate(p.id, { dwellSec: 30, note: '' });
-  S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released to show what the reconciliation does next.');
+  const p = S.referInstruction(E.REPLAY.instruction(), 'U-MK1', 'Set up as WA-01 for the roll-up. Please check it.');
+  S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Released to show what the reconciliation does next.');
+  S.ownerRelease(p.id, 'U-HLO');
   assert.equal(S.payment(p.id).releasedExternal, 901720000);
   const run = S.runReconciliation('U-OR1');
   assert.equal(run.independent, true);
@@ -133,19 +152,15 @@ test('retiring WA-01 in the M1 register makes the next roll-up hit R-03', () => 
   assert.deepEqual(ret.obligations, ['O4', 'O6']);
 });
 
-test('an Op Risk release logs a risk acceptance for Internal Audit, and Internal Audit cannot run the controls it audits', () => {
+test('an Op Risk risk acceptance is logged for Internal Audit, and Internal Audit cannot run the controls it audits', () => {
   const S = freshStore();
   const E = globalThis.PCAP.engine;
-  const p = S.submitInstruction(E.REPLAY.instruction(), 'U-MK1');
-  S.checkPayment(p.id, 'U-CK1', '');
-  S.approverOpen(p.id);
-  assert.equal(S.approverRekey(p.id, 7820000, 'INTEREST').status, 'retry');
-  assert.equal(S.approverRekey(p.id, 7820000, 'INTEREST').status, 'fire');
-  S.approverEscalate(p.id, { dwellSec: 30, note: '' });
-  assert.throws(() => S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released with the maker as owner.', null, { ownerId: 'U-MK1' }), /first-line risk owner/);
+  const p = S.referInstruction(E.REPLAY.instruction(), 'U-MK1', 'Set up as WA-01 for the roll-up. Please check it.');
+  assert.throws(() => S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Accepted with the maker as owner.', null, { ownerId: 'U-MK1' }), /first-line risk owner/);
   assert.equal(S.payment(p.id).status, 'HELD', 'a failed acceptance leaves the hold in place');
 
-  S.opRiskRelease(p.id, 'U-OR1', 'Approved business exception', 'Released to show the acceptance record.', 12, { ownerId: 'U-HLO' });
+  S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Accepted to show the acceptance record.', 12, { ownerId: 'U-HLO' });
+  assert.equal(S.payment(p.id).status, 'ACCEPTED', 'signed off, but nothing has left the bank');
   const acc = S.payment(p.id).opRisk.acceptance;
   assert.equal(acc.id, 'RA-0001');
   assert.equal(acc.expires, S.today());
@@ -153,9 +168,8 @@ test('an Op Risk release logs a risk acceptance for Internal Audit, and Internal
   assert.ok(ev, 'risk acceptance logged');
   assert.deepEqual(ev.obligations, ['O1', 'O2']);
   assert.match(ev.detail, /Risk owner: Dana F\. \(first line\)/);
+  assert.match(ev.detail, /Operational Risk cannot release it/);
   assert.equal(S.riskAcceptances().length, 1);
-  const rk = S.st().events.filter((e) => e.type === 'REKEY' && e.paymentId === p.id);
-  assert.ok(rk.every((e) => e.data.nature === 'INTEREST' && e.data.computedNature === 'PRINCIPAL_AND_INTEREST'), 're-key events keep the stated and computed payment type');
 
   assert.throws(() => S.runReconciliation('U-IA1'), /Internal Audit/);
   assert.throws(() => S.runRegressionTest('U-IA1'), /Internal Audit/);

@@ -128,15 +128,16 @@
 
   /* What each recorded step was, in plain words (Activity log and the evidence trail). */
   var EVENTS = {
-    SUBMITTED: 'Sent to the checker', RESUBMITTED: 'Fixed and sent again', RULE_RESULT: 'PCAP check', OVERRIDE_USE: 'Workaround used',
-    CHECKED: 'Checked', GATE_CHECK: 'Approver allowed', BLOCKED_ATTEMPT: 'Approver not allowed', REKEY: 'Approver typed a figure',
-    ESCALATED: 'Stopped after two misses', STATEMENT_SHOWN: 'Shown to the approver', HELD: 'Stopped, sent to Op Risk',
+    SUBMITTED: 'Keyed', RESUBMITTED: 'Fixed and keyed again', RULE_RESULT: 'PCAP check', OVERRIDE_USE: 'Workaround used',
+    CHECKED: 'Checked', GATE_CHECK: 'Approver allowed', BLOCKED_ATTEMPT: 'Not allowed', REKEY: 'Approver typed a figure',
+    ESCALATED: 'Stopped after two misses', STATEMENT_SHOWN: 'Shown to the approver', HELD: 'Stopped, referred to Op Risk',
     BEHAVIOUR_SIGNAL: 'Approval habit noted', RELEASED: 'Released', RETURNED: 'Sent back to the maker', CANCELLED: 'Cancelled',
-    OPRISK_REJECTED: 'Op Risk rejected it', OPRISK_RELEASED: 'Op Risk released it', RISK_ACCEPTED: 'Risk signed off',
+    OPRISK_REJECTED: 'Op Risk returned it, a real error', RISK_ACCEPTED: 'Op Risk signed off the risk',
+    RELEASE_CHECK: 'Releaser allowed', OWNER_RELEASED: 'Released by the Head of Loan Ops', OWNER_DECLINED: 'Head of Loan Ops did not release it',
     ACCEPTANCE_REVIEWED: 'Audit reviewed a sign-off', REGISTER_ADDED: 'Workaround added', REGISTER_APPROVED: 'Workaround approved',
     REGISTER_RETIRED: 'Workaround retired', REGISTER_REVIEWED: 'Workaround reviewed', RECON_RUN: 'Reconciliation run',
-    CONTROL_TEST: '2020 payment test run', SYNTHETIC_TEST: 'Test results run', EVIDENCE_EXPORTED: 'Evidence downloaded',
-    M4_INDIVIDUAL_VIEW: 'Named view opened'
+    CONTROL_TEST: '2020 payment test run', CONTROL_ESCALATED: 'Failed check escalated to Op Risk', SYNTHETIC_TEST: 'Test results run',
+    EVIDENCE_EXPORTED: 'Evidence downloaded', M4_INDIVIDUAL_VIEW: 'Named view opened'
   };
   function eventName(type) { return EVENTS[type] || String(type || '').replace(/_/g, ' ').toLowerCase(); }
 
@@ -159,7 +160,9 @@
     [/(\d+) Tier 3 holds? waiting/g, function (m, n) { return n + ' stopped payment' + (n === '1' ? '' : 's') + ' waiting'; }],
     [/\s(at|to) Tier ([123])\b/g, function (m, w, n) { return ' (' + SHORT[n] + ')'; }],
     [/\s*\((R-0\d(, | and )?)+\)/g, ''],
+    [/\s*Rules still failing, as assessed: (R-0\d(, | and )?)+\.?/g, ' The checks Operational Risk assessed still fail, and nothing new fails.'],
     [/\s*Rules( fired)?: (R-0\d(, | and )?)+\.?/g, ''],
+    [/\bThe M3 gate is closed for this approver\./g, 'This approver is not allowed to approve it.'],
     [/\b[Rr]isk acceptance\b/g, function (m) { return m.charAt(0) === 'R' ? 'Risk sign-off' : 'risk sign-off'; }],
     [/\bthe M1 register\b/g, 'the workaround list'],
     [/\bM1 register\b/g, 'workaround list'],
