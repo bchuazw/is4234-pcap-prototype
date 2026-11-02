@@ -37,6 +37,9 @@
       /* The Head of Loan Ops is the only person who can release a stopped payment, after Operational Risk's risk acceptance,
          so the release limit is checked against the amount PCAP computes (R-05 style). Not an approver in the normal chain. */
       { id: 'U-HLO', name: 'Dana F.', employer: 'Citi', inHouse: true, team: 'Citi Loan Ops Management', title: 'Head of Loan Operations, first line owner', roles: ['owner'], reportsTo: null, approvalLimit: 2000000000, certs: [] },
+      /* Agency services keeps the loan schedules. Off-cycle lines (such as a roll-up's interest) are added here and approved
+         by the Head of Loan Ops, outside the maker's team, so the expected amount does not come from the person keying the payment. */
+      { id: 'U-AGY1', name: 'Joanne P.', employer: 'Citi', inHouse: true, team: 'Citi Agency Services', title: 'Agency services, loan schedules', roles: ['schedule'], reportsTo: 'U-HLO', approvalLimit: 0, certs: [] },
       { id: 'U-TEC', name: 'Evan L.', employer: 'Citi', inHouse: true, team: 'Citi Technology', title: 'Tech lead, payments platform', roles: ['tech'], reportsTo: null, approvalLimit: 0, certs: [] },
       { id: 'U-IA1', name: 'Noor A.', employer: 'Citi', inHouse: true, team: 'Citi Internal Audit', title: 'Internal Audit, third line', roles: ['audit'], reportsTo: null, approvalLimit: 0, certs: [] },
       /* Read-only viewers: they see results, never act on a payment or run a control. */
@@ -75,7 +78,7 @@
         ] },
       { id: 'LN-1004', name: 'Northwind Energy term loan (roll-up today)', borrower: 'Northwind Energy (synthetic)', lenders: 27, principalOutstanding: 310000000,
         schedule: [
-          { offset: 0, interest: 2145000, principal: 0, note: 'Accrued interest on roll-up. Principal stays in the bank via WA-01.' },
+          { offset: 0, interest: 2145000, principal: 0, note: 'Accrued interest on roll-up. Principal stays in the bank via WA-01.', offCycle: true, addedBy: 'U-AGY1', approvedBy: 'U-HLO', addedOffset: -3 },
           { offset: 1460, interest: 0, principal: 310000000, note: 'Maturity' }
         ] },
       { id: 'LN-1005', name: 'Atlas Shipping term loan A', borrower: 'Atlas Shipping (synthetic)', lenders: 12, principalOutstanding: 180000000,
@@ -88,7 +91,7 @@
         ] },
       { id: 'LN-1007', name: 'Copperline Mining facility (roll-up)', borrower: 'Copperline Mining (synthetic)', lenders: 22, principalOutstanding: 140000000,
         schedule: [
-          { offset: 0, interest: 980000, principal: 0, note: 'Accrued interest on roll-up. Principal stays in the bank via WA-01.' }
+          { offset: 0, interest: 980000, principal: 0, note: 'Accrued interest on roll-up. Principal stays in the bank via WA-01.', offCycle: true, addedBy: 'U-AGY1', approvedBy: 'U-HLO', addedOffset: -2 }
         ] },
       { id: 'LN-1008', name: 'Brightwater Utilities term loan', borrower: 'Brightwater Utilities (synthetic)', lenders: 7, principalOutstanding: 96000000,
         schedule: [

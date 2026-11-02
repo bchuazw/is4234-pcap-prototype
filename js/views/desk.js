@@ -259,7 +259,7 @@
       tier: ev.tier, results: ev.results, gate: ev.gate, approverId: instr.approverId,
       total: c.externalTotal, interest: c.externalInterest, principal: c.externalPrincipal, kept: c.internalPrincipal,
       lenders: c.lenders, washSet: c.washSet, partialWash: c.partialWash, principalKeyed: E.num(instr.principal),
-      expected: x.remainingTotal, date: x.date, scheduled: x.scheduled, alreadyPaid: x.alreadyPaid
+      expected: x.remainingTotal, date: x.date, scheduled: x.scheduled, alreadyPaid: x.alreadyPaid, source: x.source || null, makerId: instr.makerId
     };
   }
   function eventResults(p, tier) {
@@ -283,7 +283,8 @@
       gate: { open: res['R-05'].status !== 'fire' && res['R-06'].status !== 'fire', failures: ['R-05', 'R-06'].filter(function (k) { return res[k].status === 'fire'; }) },
       total: s.external || 0, principal: s.externalPrincipal || 0, interest: E.round2((s.external || 0) - (s.externalPrincipal || 0)), kept: s.internalPrincipal || 0,
       lenders: ln.lenders, washSet: c.washSet, partialWash: c.partialWash, principalKeyed: E.num(p.instr.principal),
-      expected: s.expected || 0, date: p.instr.valueDate, scheduled: !/^Nothing is due on/.test(r01), alreadyPaid: /already paid/.test(r01)
+      expected: s.expected || 0, date: p.instr.valueDate, scheduled: !/^Nothing is due on/.test(r01), alreadyPaid: /already paid/.test(r01),
+      source: E.expectedFor(ln, p.instr.valueDate).source || null, makerId: p.instr.makerId
     };
   }
   function modelFor(p) {
@@ -469,6 +470,19 @@
       '<p class="cb-verdict is-' + v.tone + '">' + U.icon(v.tone === 'good' ? 'check' : v.tone === 'warn' ? 'warn' : 'stop') + '<span>' + esc(verdict) + '</span></p>';
   }
 
+  /* Where the expected amount comes from. An off-cycle line has to be added and approved outside the maker's team, so the
+     figure PCAP compares against is not set by the person keying the payment (display only, no rule). */
+  function sourceText(m) {
+    var src = m.source;
+    if (!m.scheduled || !src) return '';
+    if (!src.offCycle) return 'From the loan agreement schedule, loaded when the loan was booked.';
+    var maker = userOf(m.makerId), adder = userOf(src.addedBy), appr = userOf(src.approvedBy);
+    var outside = !!(maker && adder && appr && adder.team !== maker.team && appr.team !== maker.team && adder.employer === 'Citi' && appr.inHouse);
+    return 'An off-cycle line, added by ' + (adder ? adder.name + ' (' + adder.title.split(',')[0] + ')' : 'an unknown person') + (src.addedOn ? ' on ' + U.fmtDate(src.addedOn) : '') +
+      ' and approved by ' + (appr ? appr.name + ' (' + appr.title.split(',')[0] + ')' : 'nobody on record') + '. ' +
+      (outside ? 'Both are outside the maker\'s team.' : 'Check this: it was not added and approved outside the maker\'s team.');
+  }
+
   function figuresHtml(m, opts) {
     var v = variance(m);
     var rows = [];
@@ -479,6 +493,7 @@
     if (m.kept > 0 || m.principalKeyed > 0) rows.push(['Principal kept in the bank', fullAmt(m.kept), '']);
     rows.push(['Total leaving the bank', fullAmt(m.total), 'total']);
     rows.push(['Loan schedule expects, ' + U.fmtDate(m.date), fullAmt(m.expected), '']);
+    if (m.scheduled && m.source) rows.push(['Where that comes from', m.source.offCycle ? 'Off-cycle line, see above' : 'Loan agreement schedule', 'src']);
     rows.push(['Difference', (v.diff > 0 ? '+' : '') + fullAmt(v.diff), Math.abs(v.diff) < 0.005 ? 'ok' : v.fire ? 'bad' : '']);
     /* Open at Tier 3, where the numbers are the decision. Folded otherwise: the sentence and the bars say it. */
     var open = opts.figsOpen != null ? opts.figsOpen : m.tier === 3;
@@ -498,7 +513,7 @@
       '<h3 class="eyebrow" id="cq-title">' + esc(opts.eyebrow || 'What this payment will do') + '</h3>' +
       '<p class="cq-hero">' + heroSentence(m) + '</p>' +
       subs.map(function (x) { return '<p class="cq-sub">' + x + '</p>'; }).join('') +
-      barsHtml(m) + figuresHtml(m, opts) + '</section>';
+      barsHtml(m) + (m.source && m.source.offCycle && m.scheduled ? '<p class="cq-src">' + ico('doc') + '<span><strong>Expected amount:</strong> ' + esc(sourceText(m)) + '</span></p>' : '') + figuresHtml(m, opts) + '</section>';
   }
 
   function decisionBanner(m, p) {

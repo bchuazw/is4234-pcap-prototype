@@ -261,7 +261,8 @@
       principalOutstanding: 893900000,
       replay: true,
       schedule: [
-        { date: '2020-08-11', interest: 7820000, principal: 0, paidInterest: 0, paidPrincipal: 0, note: 'Accrued interest on the roll-up, off-cycle, notified to lenders. Principal is not due.' },
+        { date: '2020-08-11', interest: 7820000, principal: 0, paidInterest: 0, paidPrincipal: 0, note: 'Accrued interest on the roll-up, off-cycle, notified to lenders. Principal is not due.',
+          offCycle: true, addedBy: 'U-AGY1', approvedBy: 'U-HLO', addedOn: '2020-08-06' },
         { date: '2023-09-07', interest: 0, principal: 893900000, paidInterest: 0, paidPrincipal: 0, note: 'Maturity' }
       ]
     },
@@ -298,7 +299,10 @@
     var loans = data.loans.map(function (l) {
       var c = clone(l);
       c.schedule = l.schedule.map(function (s) {
-        return { date: at(s.offset), interest: s.interest || 0, principal: s.principal || 0, paidInterest: s.paidInterest || 0, paidPrincipal: s.paidPrincipal || 0, note: s.note || '' };
+        var line = { date: at(s.offset), interest: s.interest || 0, principal: s.principal || 0, paidInterest: s.paidInterest || 0, paidPrincipal: s.paidPrincipal || 0, note: s.note || '' };
+        /* Where an off-cycle line came from: who added it and who approved it (report 5.3, independent expected amount). */
+        if (s.offCycle) { line.offCycle = true; line.addedBy = s.addedBy || null; line.approvedBy = s.approvedBy || null; line.addedOn = at(s.addedOffset); }
+        return line;
       });
       return c;
     });
@@ -375,6 +379,7 @@
       r.principalDue = round2(line.principal || 0);
       r.paidInterest = round2(line.paidInterest || 0);
       r.paidPrincipal = round2(line.paidPrincipal || 0);
+      r.source = line.offCycle ? { offCycle: true, addedBy: line.addedBy || null, approvedBy: line.approvedBy || null, addedOn: line.addedOn || null } : { offCycle: false };
     }
     r.remainingInterest = Math.max(0, round2(r.interestDue - r.paidInterest));
     r.remainingPrincipal = Math.max(0, round2(r.principalDue - r.paidPrincipal));

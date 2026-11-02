@@ -208,6 +208,27 @@ test('24-hour escalation: a failed control shows how long it has been open, and 
   assert.ok(S.todoCounts('oprisk').items.some((i) => i.route === 'monitor' && /escalated to you/.test(i.text)));
 });
 
+test('the expected amount is independent: the off-cycle 2020 line was added and approved outside the maker\'s team, and the screen says so', () => {
+  const DATA = require('../data/seed-data.js');
+  const c = E.buildDemoContext(DATA, '2026-11-02');
+  const team = (id) => E.byId(c.users, id).team;
+  const replay = E.expectedFor(E.byId(c.loans, 'LN-REV16'), '2020-08-11').source;
+  assert.equal(replay.offCycle, true);
+  assert.equal(replay.addedBy, 'U-AGY1');
+  assert.equal(replay.approvedBy, 'U-HLO');
+  assert.equal(replay.addedOn, '2020-08-06');
+  const maker = team('U-MK1');
+  assert.notEqual(team(replay.addedBy), maker, 'added outside the maker\'s team');
+  assert.notEqual(team(replay.approvedBy), maker, 'approved outside the maker\'s team');
+  assert.notEqual(replay.addedBy, replay.approvedBy, 'added and approved by different people');
+  const roll = E.expectedFor(E.byId(c.loans, 'LN-1004'), '2026-11-02').source;
+  assert.equal(roll.offCycle, true, 'today\'s roll-up interest line is off-cycle too');
+  assert.equal(E.expectedFor(E.byId(c.loans, 'LN-1001'), '2026-11-02').source.offCycle, false, 'a quarterly line comes from the loan agreement');
+  const desk = fs.readFileSync(path.join(ROOT, 'js', 'views', 'desk.js'), 'utf8');
+  assert.match(desk, /Where that comes from/);
+  assert.match(desk, /outside the maker\\'s team/);
+});
+
 test('no native confirm, prompt or alert is left anywhere: every question uses the in-page dialog', () => {
   const files = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js'), [path.join(ROOT, 'index.html')]);
   const bare = /(^|[^.\w$])(confirm|prompt|alert)\s*\(/m;
