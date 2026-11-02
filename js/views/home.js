@@ -92,7 +92,11 @@
 
   /* Start as a role with practice work waiting. Fresh demo data first, after asking if the person has their own changes. */
   function tryRole(role) {
-    var fresh = !store.hasUserData() || root.confirm('Start again with fresh practice payments? This clears the payments and changes you made in this browser.');
+    if (!store.hasUserData()) { startRole(role, true); return; }
+    PCAP.dialog.ask({ title: 'Start again with practice payments?', text: 'This clears the payments and changes you made in this browser.', ok: 'Start again', cancel: 'Keep my changes' })
+      .then(function (ok) { startRole(role, !!ok); });
+  }
+  function startRole(role, fresh) {
     if (fresh) {
       store.reset();
       store.practice();

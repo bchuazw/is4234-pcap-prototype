@@ -277,11 +277,12 @@
       if (v && typeof v.onKey === 'function') { try { v.onKey(e); } catch (err) { reportError(err); } }
     });
     document.getElementById('reset-btn').addEventListener('click', function () {
-      if (root.confirm('Reset all demo data? This clears the payments and changes made in this browser.')) {
+      PCAP.dialog.ask({ title: 'Reset all demo data?', text: 'This clears the payments and changes made in this browser and starts again from the demo data.', ok: 'Reset demo data', danger: true }).then(function (ok) {
+        if (!ok) return;
         store.reset();
         U.toast('Demo data reset.', 'ok');
         render();
-      }
+      });
     });
     document.getElementById('detail-close').addEventListener('click', function () {
       var dlg = document.getElementById('detail-dialog');

@@ -150,11 +150,14 @@
       var b = e.target.closest('[data-act]');
       if (!b || b.disabled) return;
       if (b.getAttribute('data-act') === 'individual') {
-        var reason = window.prompt('Why do you need named figures? This is logged.', 'Team TPA is red on R-08 this week. Reviewing Tier 2 and 3 approvals before coaching.');
-        if (!reason || reason.trim().length < 10) { U.toast('A reason of at least 10 characters is needed.', 'bad'); return; }
-        store.logIndividualView(store.roleUserId('oprisk'), reason.trim());
-        individualOpen = true;
-        PCAP.app.render();
+        PCAP.dialog.reason({ title: 'Open the named view?', text: 'Names are hidden by default. Say why you need them. Your reason is written to the activity log.',
+          label: 'Your reason', value: 'Team TPA is red on the rubber-stamp score this week. Reviewing its closer-look approvals before coaching.',
+          min: E.DEFAULT_CONFIG.reasonMinChars, ok: 'Open the named view' }).then(function (reason) {
+          if (reason == null) return;
+          try { store.logIndividualView(store.roleUserId('oprisk'), reason); } catch (err) { U.toast(String(err && err.message || err), 'bad'); return; }
+          individualOpen = true;
+          PCAP.app.render();
+        });
       } else if (b.getAttribute('data-act') === 'close-individual') {
         individualOpen = false;
         PCAP.app.render();

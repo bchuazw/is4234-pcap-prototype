@@ -1530,12 +1530,19 @@
       var cat = document.querySelector('input[name="opr-category"]:checked');
       if (!cat) { showError('opr-err', 'Choose why you are releasing it: false alarm or approved business exception.', 'input[name="opr-category"]'); return; }
       var ownerSel = document.getElementById('opr-owner');
-      if (!window.confirm('Release ' + id + '? ' + fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank under a recorded risk acceptance. This cannot be undone.')) return;
-      try {
-        store.opRiskRelease(id, store.roleUserId('oprisk'), cat.value, reason, secs, { ownerId: ownerSel ? ownerSel.value : null });
-      } catch (err) { showError('opr-err', String(err && err.message || err)); return; }
-      next = advance('oprisk', id);
-      U.toast(id + ' released under risk sign-off ' + store.payment(id).opRisk.acceptance.id + '. Internal Audit will review it.' + nextNote(next), 'warn');
+      PCAP.dialog.ask({ title: 'Release ' + id + '?', text: fullAmt(store.currentEval(store.payment(id)).consequence.externalTotal) + ' will leave the bank under a recorded risk sign-off. This cannot be undone.', ok: 'Release', danger: true }).then(function (ok) {
+        if (!ok) return;
+        try {
+          store.opRiskRelease(id, store.roleUserId('oprisk'), cat.value, reason, secs, { ownerId: ownerSel ? ownerSel.value : null });
+        } catch (err) { showError('opr-err', String(err && err.message || err)); return; }
+        var nx = advance('oprisk', id);
+        U.toast(id + ' released under risk sign-off ' + store.payment(id).opRisk.acceptance.id + '. Internal Audit will review it.' + nextNote(nx), 'warn');
+        delete noteDrafts[id + ':opr-reason'];
+        ui().oprRelease = null;
+        PCAP.app.render();
+        scrollToDetail();
+      });
+      return;
     } else {
       store.opRiskReject(id, store.roleUserId('oprisk'), reason, secs);
       next = advance('oprisk', id);
@@ -1774,10 +1781,12 @@
     },
     practice: function () { PCAP.views.home.tryRole(st().role); },
     cancel: function (btn, id) {
-      if (!window.confirm('Cancel ' + id + '? It will not be sent, and this cannot be undone.')) return;
-      store.cancelPayment(id, store.roleUserId('maker'));
-      U.toast(id + ' cancelled.', 'ok');
-      PCAP.app.render();
+      PCAP.dialog.ask({ title: 'Cancel ' + id + '?', text: 'It will not be sent, and this cannot be undone.', ok: 'Cancel the payment', cancel: 'Keep it', danger: true }).then(function (ok) {
+        if (!ok) return;
+        store.cancelPayment(id, store.roleUserId('maker'));
+        U.toast(id + ' cancelled.', 'ok');
+        PCAP.app.render();
+      });
     }
   };
 

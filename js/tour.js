@@ -114,7 +114,11 @@
   function start() {
     var S = PCAP.store;
     if (T.on) return;
-    if (S.hasUserData() && !root.confirm('The tour starts from fresh demo data, so it clears the payments and changes you made in this browser. Start the tour?')) return;
+    if (!S.hasUserData()) { begin(); return; }
+    PCAP.dialog.ask({ title: 'Start the tour?', text: 'The tour starts from fresh demo data, so it clears the payments and changes you made in this browser.', ok: 'Start the tour' })
+      .then(function (ok) { if (ok && !T.on) begin(); });
+  }
+  function begin() {
     T.lastFocus = doc().activeElement;
     build();
     T.on = true;

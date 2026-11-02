@@ -152,9 +152,13 @@
         if (act === 'review') { store.reviewWorkaround(id, actor); U.toast(id + ' reviewed. Owner attestation logged.', 'ok'); }
         if (act === 'approve') { store.approveWorkaround(id, actor); U.toast(id + ' approved and active.', 'ok'); }
         if (act === 'retire') {
-          if (!window.confirm('Retire ' + id + '? Payments that use it will be blocked by R-03.')) return;
-          store.retireWorkaround(id, actor);
-          U.toast(id + ' retired.', 'ok');
+          PCAP.dialog.ask({ title: 'Retire ' + id + '?', text: 'PCAP will stop every payment that uses it from now on.', ok: 'Retire ' + id, danger: true }).then(function (ok) {
+            if (!ok) return;
+            store.retireWorkaround(id, actor);
+            U.toast(id + ' retired.', 'ok');
+            PCAP.app.render();
+          });
+          return;
         }
         PCAP.app.render();
         return;

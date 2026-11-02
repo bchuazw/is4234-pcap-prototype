@@ -218,16 +218,19 @@
       var act = b.getAttribute('data-act');
       if (act === 'ra-review' || act === 'ra-finding') {
         var pid = b.getAttribute('data-id');
-        var note = '';
-        if (act === 'ra-finding') {
-          note = window.prompt('Describe the finding for the risk owner (at least 15 characters). It is logged.', '');
-          if (note == null) return;
-        }
-        try {
-          var acc = store.auditReviewAcceptance(pid, store.roleUserId(s.role), act === 'ra-finding' ? 'finding' : 'no-issue', note);
-          U.toast(acc.id + (act === 'ra-finding' ? ': finding raised and recorded.' : ' reviewed, no issue. Recorded.'), act === 'ra-finding' ? 'warn' : 'ok');
-        } catch (err) { U.toast(String(err && err.message || err), 'bad'); return; }
-        PCAP.app.render();
+        var record = function (note) {
+          try {
+            var acc = store.auditReviewAcceptance(pid, store.roleUserId(s.role), act === 'ra-finding' ? 'finding' : 'no-issue', note);
+            U.toast(acc.id + (act === 'ra-finding' ? ': finding raised and recorded.' : ' reviewed, no issue. Recorded.'), act === 'ra-finding' ? 'warn' : 'ok');
+          } catch (err) { U.toast(String(err && err.message || err), 'bad'); return; }
+          PCAP.app.render();
+        };
+        if (act === 'ra-review') { record(''); return; }
+        var p = store.payment(pid);
+        var accId = p && p.opRisk && p.opRisk.acceptance ? p.opRisk.acceptance.id : pid;
+        PCAP.dialog.reason({ title: 'Raise a finding on ' + accId, text: 'Describe what the risk owner has to fix. It is recorded in the activity log and the evidence pack.',
+          label: 'The finding', placeholder: 'e.g. The reason does not say who confirmed the exception.', min: E.DEFAULT_CONFIG.reasonMinChars, ok: 'Record the finding', danger: true,
+          why: 'The owner needs to know what to fix.' }).then(function (note) { if (note != null) record(note); });
         return;
       }
       if (act.indexOf('export') !== 0) return;

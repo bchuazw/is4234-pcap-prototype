@@ -683,6 +683,9 @@
   /* ------------------------------------------------------------ M4, M6, synthetic test */
 
   function logIndividualView(actorId, reason) {
+    if (roleOf(actorId) !== 'oprisk') throw new Error('Only Operational Risk can open the named view.');
+    reason = String(reason || '').trim();
+    if (reason.length < E.DEFAULT_CONFIG.reasonMinChars) throw new Error('Give a reason of at least ' + E.DEFAULT_CONFIG.reasonMinChars + ' characters. It is written to the activity log.');
     logEvent({ type: 'M4_INDIVIDUAL_VIEW', module: 'M4', rule: 'R-08', obligations: ['O5'], actorId: actorId, result: 'info',
       detail: 'Individual view of Tier 2 and 3 approvals opened by ' + userName(actorId) + '. Reason: ' + reason });
     save();
