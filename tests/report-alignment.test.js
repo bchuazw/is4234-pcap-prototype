@@ -229,6 +229,13 @@ test('the expected amount is independent: the off-cycle 2020 line was added and 
   assert.match(desk, /outside the maker\\'s team/);
 });
 
+test('every script parses, including the screens the Node tests do not load', () => {
+  const files = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js'));
+  for (const f of files) {
+    assert.doesNotThrow(() => new Function(fs.readFileSync(f, 'utf8')), path.relative(ROOT, f) + ' has a syntax error');
+  }
+});
+
 test('no native confirm, prompt or alert is left anywhere: every question uses the in-page dialog', () => {
   const files = filesUnder(path.join(ROOT, 'js'), '.js').concat(filesUnder(path.join(ROOT, 'data'), '.js'), [path.join(ROOT, 'index.html')]);
   const bare = /(^|[^.\w$])(confirm|prompt|alert)\s*\(/m;

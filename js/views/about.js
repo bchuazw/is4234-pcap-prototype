@@ -229,7 +229,7 @@
       'M4 privacy is a design note (team level by default, at least 3 approvers per team, logged individual view), not a legal review under the PDPA.',
       'The Head of Loan Ops makes the release decision in the app as a second key after Operational Risk\'s acceptance, but there is no login, so in the demo anyone can choose that role.',
       'The agent notice is generated from the loan schedule in the demo, so it is not a truly independent source.',
-      'Off-cycle schedule lines, such as the 2020 roll-up interest, must be created and approved outside the maker's team, so the amount PCAP compares against does not come from the person keying the payment. The consequence card shows who added and approved the line. No rule checks it yet.',
+      'Off-cycle schedule lines, such as the 2020 roll-up interest, must be created and approved outside the maker\'s team, so the amount PCAP compares against does not come from the person keying the payment. The consequence card shows who added and approved the line. No rule checks it yet.',
       'Open feasibility questions: whether the core system and payment gateway can hold a payment for PCAP, the cost of the Wipro contract change, a build and running cost estimate, and a timed walk-through with real approvers.',
       'The cost and value figures are estimates from the synthetic test model or a stated assumption, marked "est." on screen.'
     ];
