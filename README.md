@@ -165,7 +165,7 @@ From this folder, with Node 18 or later (built and run on Node 25):
 node --test
 ```
 
-There are 59 tests in `tests/engine.test.js`, `tests/flow.test.js`, `tests/value.test.js`, `tests/zero-learning.test.js` and `tests/report-alignment.test.js` (all passing, last run 2 Nov 2026). They check that:
+There are 60 tests in `tests/engine.test.js`, `tests/flow.test.js`, `tests/value.test.js`, `tests/zero-learning.test.js` and `tests/report-alignment.test.js` (all passing, last run 2 Nov 2026). They check that:
 
 - the Revlon replay is stopped at Tier 3 when it is keyed, with R-01, R-02 and R-04 firing, the statement shows the principal amount, and as a backstop the approver's blind re-key would also fail (R-07)
 - a normal scheduled interest payment releases at Tier 1, a correct WA-01 roll-up is Tier 2 with the principal kept inside the bank, and a correct scheduled principal instalment is Tier 2 with no rule failing (not a false alarm)
