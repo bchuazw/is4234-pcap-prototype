@@ -87,6 +87,9 @@ test('each role sees only what it has to act on: waiting payments, register item
   assert.deepEqual(S.waitingFor('oprisk').map((x) => x.id), [p.id]);
   assert.equal(S.todoCounts('oprisk').items.find((i) => i.route === 'desk').count, 1);
   assert.equal(S.todoCounts('audit').total, 0, 'nothing signed off yet, nothing to review');
+  /* The seed has a referral dated yesterday, which falls in this week on every day but Monday, so count from a baseline. */
+  const before = S.weekSummary();
+  assert.ok(before.referred.maker >= 1, 'the maker referral of the replay is counted this week');
   S.opRiskAccept(p.id, 'U-OR1', 'Approved business exception', 'Accepted to show the acceptance review.', 10, { ownerId: 'U-HLO' });
   assert.equal(S.todoCounts('oprisk').items.filter((i) => i.route === 'desk').length, 0);
   assert.equal(S.todoCounts('owner').items.find((i) => i.route === 'desk').count, 1, 'the Head of Loan Ops now has a release decision');
@@ -94,9 +97,9 @@ test('each role sees only what it has to act on: waiting payments, register item
   S.ownerRelease(p.id, 'U-HLO');
   assert.equal(S.todoCounts('owner').items.filter((i) => i.route === 'desk').length, 0);
   const w = S.weekSummary();
-  assert.equal(w.acceptances, 1);
-  assert.equal(w.heldReleased, 1);
-  assert.equal(w.referred.maker, 1);
+  assert.equal(w.acceptances, before.acceptances + 1);
+  assert.equal(w.heldReleased, before.heldReleased + 1);
+  assert.equal(w.referred.maker, before.referred.maker, 'the replay referral was already counted when it was referred');
 });
 
 test('Internal Audit records its review of a risk acceptance once, and a finding needs a reason', () => {
