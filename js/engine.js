@@ -106,7 +106,7 @@
       logic: 'The approver must not be the maker or checker, must not sit in their team or reporting line, and must be an in-house (Citi) employee for any payment at Tier 2 or 3.',
       action: 'M3 gate closes for this approver. Blocked attempt logged. Reassign to an independent in-house approver.' },
     'R-07': { id: 'R-07', name: 'Active confirmation', module: 'M2', obligations: ['O2'], screen: 'Payment desk (approver)',
-      logic: 'At Tier 2 and 3 the approver re-keys the outgoing amount and says whether it is interest, principal or both, without seeing the maker\'s figure or the checker\'s note. PCAP compares both with what it computed.',
+      logic: 'At Tier 2 the approver re-keys the outgoing amount and says whether it is interest, principal or both, without seeing the maker\'s figure or the checker\'s note. PCAP compares both with what it computed.',
       action: 'First mismatch: re-check prompt, logged. Second mismatch: Tier 3 hard stop.' },
     'R-08': { id: 'R-08', name: 'Rubber-stamp score', module: 'M4', obligations: ['O2', 'O5'], screen: 'M4 analytics',
       logic: 'Weekly team score from 0 to 100. 40 points for fast looks at the consequence screen (under 8 seconds at Tier 2 and 3), 30 for re-key slips (the approver\'s own first figure was wrong, a 20% slip rate scores all 30), 30 for Tier 2 approvals within 5 seconds of the warning. Mismatches that end in an escalation count as catches, not slips. A separate signal, outside the score, counts concentrated reviewer pairs per team each week: a checker or approver who handled at least 60% of one maker\'s payments in that team, once the maker has at least 10.',
