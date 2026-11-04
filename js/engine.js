@@ -43,7 +43,7 @@
     PRINCIPAL: { id: 'PRINCIPAL', label: 'Principal only' }
   };
 
-  /* Why Operational Risk may release a Tier 3 hold. A release is a documented risk acceptance (L5). */
+  /* Reasons Operational Risk may sign off (accept) a Tier 3 hold. It cannot release it, only the Head of Loan Ops can (L5). */
   var ACCEPT_CATEGORIES = ['False alarm, payment is correct', 'Approved business exception'];
 
   var DEFAULT_CONFIG = {
@@ -51,7 +51,7 @@
     tolerancePct: 0.001,      // R-01: or 0.1% of the expected amount, whichever is larger
     tier3Pct: 0.10,           // R-01: above 10% variance is Tier 3
     tier3Abs: 5000000,        // R-01: or above USD 5 million variance is Tier 3
-    tier3LargeExpected: 1000000, // R-01: for an expected payment above USD 1 million (report Table 6)...
+    tier3LargeExpected: 1000000, // R-01: for an expected payment above USD 1 million (report Table 8)...
     tier3LargePct: 0.05,      // R-01: ...a variance above 5% is Tier 3
     overrideFloorTier: 2,     // any valid override payment is at least Tier 2
     principalFloorTier: 2,    // any principal leaving the bank is at least Tier 2, even when it is scheduled
@@ -85,7 +85,7 @@
      The version goes into every evidence pack (report 5.5). */
   var RULES_VERSION = 'v2, 2 Nov 2026';
 
-  /* Table 6 of the report: rule IDs and names follow the report. */
+  /* Table 8 of the report: rule IDs and names follow the report. */
   var RULES = {
     'R-01': { id: 'R-01', name: 'Variance', module: 'M2', obligations: ['O2'], screen: 'Payment desk',
       logic: 'Compares the amount PCAP computes will leave the bank with the amount the loan schedule expects on the value date, less anything already paid. Tolerance is the larger of USD 500 or 0.1% of the expected amount.',
@@ -577,7 +577,7 @@
     return { rule: 'R-05', status: 'pass', message: okMsg + '.' };
   }
 
-  /* elevated: the payment is at Tier 2 or 3, so it needs an in-house approver (report Table 6: "an elevated chain lacks a
+  /* elevated: the payment is at Tier 2 or 3, so it needs an in-house approver (report Table 8: "an elevated chain lacks a
      certified in-house approver"). A valid workaround always makes a payment elevated. */
   function ruleR06Independence(maker, checker, approver, ov, elevated) {
     if (elevated == null) elevated = !!(ov && ov.used);
@@ -856,7 +856,7 @@
     };
   }
 
-  /* R-08 concentrated reviewer pairs (report Table 6). Per team, per week: a checker or approver who handled at least
+  /* R-08 concentrated reviewer pairs (report Table 8). Per team, per week: a checker or approver who handled at least
      60% of one maker's payments that the team reviewed, once that maker has at least 10 of them. It is a separate signal
      for second-line sampling, not part of the 40/30/30 score, and it never blocks a payment.
      reviews: [{ team, role: 'approver'|'checker', reviewerId, makerId }] */

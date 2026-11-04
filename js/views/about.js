@@ -184,7 +184,7 @@
 
   function rulesBody() {
     var rules = Object.keys(E.RULES).map(function (k) { return E.RULES[k]; });
-    return '<p class="muted small">Rule IDs, names and thresholds follow Table 6 of the report.</p><div class="table-wrap"><table class="table rules"><thead><tr><th>Rule</th><th>Module</th><th>Logic</th><th>Action</th><th>Obligations</th><th>Where to see it</th></tr></thead><tbody>' +
+    return '<p class="muted small">Rule IDs, names and thresholds follow Table 8 of the report.</p><div class="table-wrap"><table class="table rules"><thead><tr><th>Rule</th><th>Module</th><th>Logic</th><th>Action</th><th>Obligations</th><th>Where to see it</th></tr></thead><tbody>' +
       rules.map(function (r) {
         return '<tr><td><strong>' + esc(r.id) + '</strong> ' + esc(r.name) + '</td><td>' + U.moduleChip(r.module) + '</td><td>' + esc(r.logic) + '</td><td>' + esc(r.action) + '</td><td>' + r.obligations.map(U.obligationChip).join(' ') + '</td><td>' + esc(screenNow(r.screen)) + '</td></tr>';
       }).join('') + '</tbody></table></div>';

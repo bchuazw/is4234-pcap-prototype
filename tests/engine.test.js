@@ -136,7 +136,7 @@ test('R-01 Variance: an extra zero is Tier 3, a 2% slip is Tier 2, a USD 300 sli
   assert.equal(tiny.tier, 1);
 });
 
-test('R-01 Variance: above 5% on an expected payment above USD 1m is Tier 3, smaller payments keep the 10% line (report Table 6)', () => {
+test('R-01 Variance: above 5% on an expected payment above USD 1m is Tier 3, smaller payments keep the 10% line (report Table 8)', () => {
   const c = ctx();
   /* LN-1001 expects USD 1,284,375 today, so the 5% line applies. */
   const six = E.evaluate(cleanInterest({ interest: 1284375 * 1.06 }), c);
